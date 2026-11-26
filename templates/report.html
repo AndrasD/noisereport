@@ -264,11 +264,48 @@
   </table>
 
   <h2>2. Mikor megy a határ fölé?</h2>
-  <div class="plain">A piros kitöltés = abban a percben a zaj a megengedett szint <strong>felett</strong> volt. Két külön ábra: nappal (határ {{ day_limit|int }} dB) és éjjel (határ {{ night_limit|int }} dB).</div>
+  <div class="plain">
+    <strong>Hogyan olvasd az ábrákat:</strong>
+    piros kitöltés = perc a határ felett;
+    <strong>narancs sáv</strong> = a detektor szerint a gép jár;
+    <strong>kék sáv</strong> = a rendelet szerinti legzajosabb szakasz
+    (nappal 8 óra / éjjel 30 perc).
+  </div>
   <h3 style="color:#b71c1c;font-weight:900;margin:10pt 0 4pt 0;">Nappal (06–22) — határ {{ day_limit|int }} dB</h3>
   <img class="chart" src="{{ chart_day_uri }}" alt="Nappali 1 perces zajszint" />
   <h3 style="color:#b71c1c;font-weight:900;margin:10pt 0 4pt 0;">Éjjel (22–06) — határ {{ night_limit|int }} dB</h3>
   <img class="chart" src="{{ chart_night_uri }}" alt="Éjjeli 1 perces zajszint" />
+
+  {% if analysis.night_exceedance_uri %}
+  <h3 style="color:#b71c1c;font-weight:900;margin:10pt 0 4pt 0;">Éjszakai túllépés — hány perc volt {{ night_limit|int }} dB felett?</h3>
+  <div class="plain">
+    Minden oszlop egy éjszaka. A magasság = hány perc volt a határ felett;
+    a felirat a legnagyobb túllépés (dB) azon az éjjelen.
+  </div>
+  <img class="chart" src="{{ analysis.night_exceedance_uri }}" alt="Éjszakai túllépés eloszlás" />
+  {% if analysis.night_exceedance_rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>Éjszaka</th>
+        <th class="num">Perc határ felett</th>
+        <th class="num">Max túllépés</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in analysis.night_exceedance_rows %}
+      <tr class="{{ 'over' if row.minutes_over > 0 else '' }}">
+        <td><strong>{{ row.night_date }}</strong></td>
+        <td class="num {{ 'over-cell' if row.minutes_over > 0 else '' }}">{{ row.minutes_over }}</td>
+        <td class="num {{ 'over-cell' if row.minutes_over > 0 else '' }}">
+          {% if row.minutes_over > 0 %}+{{ "%.1f"|format(row.max_exceedance_db) }} dB{% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% endif %}
 
   <h2>3. Naponta</h2>
   <table>
@@ -295,7 +332,20 @@
   </table>
 
   {% if analysis.enabled %}
-  <h2>4. Mennyi ideig ment a gép?</h2>
+  {% if analysis.temperature %}
+  <h2>4. Külső hőmérséklet</h2>
+  <div class="plain">
+    A hőszivattyú tipikusan hidegebb időben jár többet.
+    Ebben az időszakban: <strong>{{ "%.1f"|format(analysis.temperature.t_min_c) }} … {{ "%.1f"|format(analysis.temperature.t_max_c) }} °C</strong>
+    (átlag {{ "%.1f"|format(analysis.temperature.t_mean_c) }} °C){% if analysis.temperature.source %} · {{ analysis.temperature.source }}{% endif %}.
+    {% if analysis.temperature_uri %}Narancs sáv = detektált gépüzem.{% endif %}
+  </div>
+  {% if analysis.temperature_uri %}
+  <img class="chart" src="{{ analysis.temperature_uri }}" alt="Külső hőmérséklet" />
+  {% endif %}
+  {% endif %}
+
+  <h2>{% if analysis.temperature %}5{% else %}4{% endif %}. Mennyi ideig ment a gép?</h2>
   <table>
     <thead>
       <tr>
@@ -303,6 +353,9 @@
         <th class="num">Ebből gépüzem</th>
         <th class="num">Üzemarány</th>
         <th class="num">Üzemelési szakaszok</th>
+        {% if analysis.temperature %}
+        <th class="num">Külső hőm.<br/>(üzem közben / időszak)</th>
+        {% endif %}
       </tr>
     </thead>
     <tbody>
@@ -311,25 +364,47 @@
         <td class="num"><strong>{{ "%.1f"|format(analysis.on_hours) }} óra</strong></td>
         <td class="num over-cell"><strong>{{ "%.1f"|format(analysis.on_ratio_pct) }}%</strong></td>
         <td class="num"><strong>{{ analysis.event_count }}</strong></td>
+        {% if analysis.temperature %}
+        <td class="num">
+          {% if analysis.temperature.t_on_mean_c is not none %}
+          <strong>{{ "%.1f"|format(analysis.temperature.t_on_mean_c) }} °C</strong>
+          {% else %}—{% endif %}
+          /
+          {{ "%.1f"|format(analysis.temperature.t_mean_c) }} °C
+          <div style="font-size:8pt;font-weight:500;color:#555;">
+            min {{ "%.1f"|format(analysis.temperature.t_min_c) }} · max {{ "%.1f"|format(analysis.temperature.t_max_c) }}
+          </div>
+        </td>
+        {% endif %}
       </tr>
     </tbody>
   </table>
   {% if analysis.events %}
   <table>
-    <thead><tr><th>Kezdet</th><th>Vég</th><th class="num">Perc</th></tr></thead>
+    <thead>
+      <tr>
+        <th>Kezdet</th>
+        <th>Vég</th>
+        <th class="num">Perc</th>
+        {% if analysis.temperature %}<th class="num">Külső °C</th>{% endif %}
+      </tr>
+    </thead>
     <tbody>
       {% for ev in analysis.events %}
       <tr>
         <td>{{ ev.started_at }}</td>
         <td>{{ ev.ended_at }}</td>
         <td class="num"><strong>{{ ev.duration_min }}</strong></td>
+        {% if analysis.temperature %}
+        <td class="num">{% if ev.temp_c is not none %}{{ "%.1f"|format(ev.temp_c) }}{% else %}—{% endif %}</td>
+        {% endif %}
       </tr>
       {% endfor %}
     </tbody>
   </table>
   {% endif %}
 
-  <h2>5. Éjjel is jár? (üzemelési mintázat)</h2>
+  <h2>{% if analysis.temperature %}6{% else %}5{% endif %}. Éjjel is jár? (üzemelési mintázat)</h2>
   <div class="plain">
     Az ábra <strong>nem hőmérséklet</strong>, hanem azt mutatja: <strong>melyik napon, melyik órában ment a gép</strong>
     (sor = dátum, oszlop = óra). Minél pirosabb a négyzet, annál nagyobb arányban járt abban az órában.
@@ -339,7 +414,7 @@
   <img class="chart" src="{{ analysis.heatmap_uri }}" alt="Üzemelési mintázat dátum × óra" />
   {% endif %}
 
-  <h2>6. Miben más a gép hangja? (spektrum)</h2>
+  <h2>{% if analysis.temperature %}7{% else %}6{% endif %}. Miben más a gép hangja? (spektrum)</h2>
   <div class="plain">
     Ez a rész <strong>nem a hangosságot</strong> (dB-határértéket) bizonyítja,
     hanem azt: a zajnak van <strong>„ujjlenyomata”</strong>, és az a szomszéd géphez köthető.
@@ -368,7 +443,7 @@
     </p>
   </div>
 
-  <h2>7. Határérték a rendelet szerint</h2>
+  <h2>{% if analysis.temperature %}8{% else %}7{% endif %}. Határérték a rendelet szerint</h2>
   <div class="plain">
     A rendelet <strong>nem az egész nap átlagát</strong> kéri, hanem:
     <strong>nappal a legzajosabb folyamatos 8 órát</strong>,
@@ -405,7 +480,7 @@
     </tbody>
   </table>
 
-  <h2>8. Mi van, ha a mérés pontatlan?</h2>
+  <h2>{% if analysis.temperature %}9{% else %}8{% endif %}. Mi van, ha a mérés pontatlan?</h2>
   <div class="plain">
     A műszer és a számítás hibázhat pár decibelt.
     A kérdés: <strong>még ha a mért érték 1–3 dB-lel magasabb is a valóságosnál</strong>

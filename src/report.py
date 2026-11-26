@@ -15,7 +15,13 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from weasyprint import HTML
 
 from src import __version__
-from src.charts import day_night_laeq_charts
+from src.charts import (
+    day_night_laeq_charts,
+    night_exceedance_chart,
+    mean_temp_in_interval,
+    outdoor_temperature_chart,
+    outdoor_temperature_summary,
+)
 from src.detect import run_detection
 from src.findings import (
     GLOSSARY,
@@ -229,16 +235,6 @@ def _compute_report_bundle(
     work = out_root / f"report_{stamp}"
     work.mkdir(parents=True, exist_ok=True)
 
-    print(f"[report] mutatók / nappali+éjjeli ábra… ({len(sound)} hangminta)", flush=True)
-    chart_day_path, chart_night_path = day_night_laeq_charts(
-        minutes,
-        work_dir=work,
-        day_limit=day_limit,
-        night_limit=night_limit,
-        start_local=manifest["start_local"],
-        end_local=manifest["end_local"],
-    )
-
     overall = period_stats(sound)
     day = period_stats(sound, day_only=True)
     night = period_stats(sound, day_only=False)
@@ -333,13 +329,21 @@ def _compute_report_bundle(
         "heatmap_uri": None,
         "spectrum_uri": None,
         "dominant_uri": None,
+        "night_exceedance_uri": None,
+        "night_exceedance_rows": [],
+        "temperature_uri": None,
+        "temperature": None,
         "limit_note": None,
         "events": [],
         "detector_version": None,
     }
 
+    day_window: dict[str, Any] | None = None
+    night_window: dict[str, Any] | None = None
+    ev_df = events_to_frame([])
+
     if with_analysis:
-        print("[report] üzemészlelés + elemző fejezetek…", flush=True)
+        print("[report] üzemészlelés + határablakok…", flush=True)
         events, _score, _ = run_detection(snap)
         ev_dicts = [
             {
@@ -350,6 +354,59 @@ def _compute_report_bundle(
             if e.ended_at is not None
         ]
         ev_df = events_to_frame(ev_dicts)
+        lim = evaluate_limits(sound, day_limit=day_limit, night_limit=night_limit)
+        assessment_rows = list(lim.get("assessment_rows") or [])
+        for r in assessment_rows:
+            if r.get("window") == "8h_day":
+                day_window = r
+            elif r.get("window") == "30min_night":
+                night_window = r
+            if r.get("max_exceedance_db") and r["max_exceedance_db"] > 0:
+                alert_over = True
+                max_exceed = (
+                    float(r["max_exceedance_db"])
+                    if max_exceed is None
+                    else max(max_exceed, float(r["max_exceedance_db"]))
+                )
+
+    print(
+        f"[report] nappali+éjjeli ábra "
+        f"(ablak+üzem overlay)… ({len(sound)} hangminta)",
+        flush=True,
+    )
+    chart_day_path, chart_night_path = day_night_laeq_charts(
+        minutes,
+        work_dir=work,
+        day_limit=day_limit,
+        night_limit=night_limit,
+        start_local=manifest["start_local"],
+        end_local=manifest["end_local"],
+        day_window=day_window,
+        night_window=night_window,
+        events=ev_df if with_analysis else None,
+    )
+    night_exc_path, night_exc_rows = night_exceedance_chart(
+        minutes,
+        out_path=work / "night_exceedance.png",
+        night_limit=night_limit,
+    )
+
+    env = (
+        pd.read_parquet(snap / "environment_sample.parquet")
+        if (snap / "environment_sample.parquet").exists()
+        else pd.DataFrame()
+    )
+    temp_summary = outdoor_temperature_summary(
+        env, events=ev_df if with_analysis else None
+    )
+    temp_path = outdoor_temperature_chart(
+        env,
+        out_path=work / "outdoor_temperature.png",
+        events=ev_df if with_analysis else None,
+    )
+
+    if with_analysis:
+        print("[report] spektrum / mintázat…", flush=True)
         heatmap = duty_heatmap(
             ev_df,
             out_path=work / "heatmap.png",
@@ -371,17 +428,9 @@ def _compute_report_bundle(
         dominant_path = dominant_hz_histogram(
             fft_window, ev_df, out_path=work / "dominant_hz.png"
         )
-        lim = evaluate_limits(sound, day_limit=day_limit, night_limit=night_limit)
+        # lim already computed above
         limit_summary = list(lim.get("summary") or [])
         assessment_rows = list(lim.get("assessment_rows") or [])
-        for r in assessment_rows:
-            if r.get("max_exceedance_db") and r["max_exceedance_db"] > 0:
-                alert_over = True
-                max_exceed = (
-                    float(r["max_exceedance_db"])
-                    if max_exceed is None
-                    else max(max_exceed, float(r["max_exceedance_db"]))
-                )
 
         start_utc = pd.Timestamp(manifest["start_utc"])
         end_utc = pd.Timestamp(manifest["end_utc"])
@@ -413,6 +462,10 @@ def _compute_report_bundle(
             "heatmap_uri": heatmap.resolve().as_uri(),
             "spectrum_uri": spectrum_path.resolve().as_uri(),
             "dominant_uri": dominant_path.resolve().as_uri(),
+            "night_exceedance_uri": night_exc_path.resolve().as_uri(),
+            "night_exceedance_rows": night_exc_rows,
+            "temperature_uri": temp_path.resolve().as_uri() if temp_path else None,
+            "temperature": temp_summary,
             "detector_version": det_ver,
             "events": [
                 {
@@ -423,10 +476,22 @@ def _compute_report_bundle(
                     )
                     if e.ended_at
                     else None,
+                    "temp_c": (
+                        mean_temp_in_interval(env, e.started_at, e.ended_at)
+                        if e.ended_at is not None
+                        else None
+                    ),
                 }
                 for e in events
             ],
         }
+    else:
+        analysis["night_exceedance_uri"] = night_exc_path.resolve().as_uri()
+        analysis["night_exceedance_rows"] = night_exc_rows
+        analysis["temperature_uri"] = (
+            temp_path.resolve().as_uri() if temp_path else None
+        )
+        analysis["temperature"] = temp_summary
 
     report_id = f"NR-{stamp}"
     extract_short = manifest.get("extract_sha256", "")[:12]
