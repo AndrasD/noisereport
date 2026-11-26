@@ -1,5 +1,25 @@
 timezone: Europe/Budapest
 
+report:
+  default_layout: full   # thin | full
+  default_type: auto     # auto | weekly | monthly | full
+
+site:
+  name: "Érintett lakóingatlan (szomszéd hőszivattyú)"
+  description: "Lakóterület — kisvárosias / kertvárosias beépítés"
+  measurement_point: >-
+    Mérőpont az érintett (elszenvedő) fél oldalán;
+    a pontos helyszínrajz a 14. lépés mérőpont-lapján lesz.
+
+instrument:
+  name: "PeakTech 8005"
+  class: "Class 2 (állítás; userguide-ból ellenőrizendő)"
+  metric_id: "peaktech_display_energetic_v1"
+  calibration_status: "nincs hitelesített kalibrációs napló ebben a riportszeletben"
+  note: >-
+    Nem akkreditált laboratóriumi mérés. Az LAeq a kijelzős dB mintákból
+    számított energetikus átlag, nem a műszer belső integráló LAeq-je.
+
 # 27/2008. (XII. 3.) KvVM–EüM — üzemi zaj, 1. melléklet 1. pont
 # https://net.jogtar.hu/jogszabaly?docid=a0800027.kvv
 # Alapértelmezés: lakóterület (kisvárosias/kertvárosias/falusias/telepszerű) → 50 / 40 dB L_TH

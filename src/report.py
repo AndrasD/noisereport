@@ -1,4 +1,4 @@
-"""PDF report: thin daily LAeq slice + analysis chapters (8–11)."""
+"""PDF report: thin daily slice + full lawyer-facing structure (step 12)."""
 
 from __future__ import annotations
 
@@ -17,8 +17,16 @@ from weasyprint import HTML
 from src import __version__
 from src.charts import day_night_laeq_charts
 from src.detect import run_detection
+from src.findings import (
+    GLOSSARY,
+    LIMITATIONS,
+    build_findings,
+    resolve_summary_type,
+    summary_type_label,
+)
 from src.limits import evaluate_limits
 from src.metrics import minute_stats_from_sound, period_stats, sustained_peak_db
+from src.qc import run_qc
 from src.regularity import cycle_summary, duty_heatmap, events_to_frame
 from src.spectrum import (
     dominant_hz_histogram,
@@ -73,13 +81,122 @@ class ReportPaths:
     chart_night_path: Path
 
 
-def build_thin_report(
+def _fmt_stats(s, *, limit: float | None = None, peak_db: float | None = None):
+    if s is None:
+        return None
+    over = None if limit is None else s.laeq_db > limit
+    exceed = None if limit is None else round(s.laeq_db - limit, 1)
+    display_peak = round(peak_db, 1) if peak_db is not None else round(s.laeq_db, 1)
+    return {
+        "laeq_db": round(s.laeq_db, 1),
+        "l10_db": round(s.l10_db, 1),
+        "l50_db": round(s.l50_db, 1),
+        "l90_db": round(s.l90_db, 1),
+        "lmax_db": display_peak,
+        "sample_count": s.sample_count,
+        "over_limit": over,
+        "exceedance_db": exceed,
+        "limit_db": limit,
+    }
+
+
+def _local_display(iso_utc: str) -> str:
+    ts = pd.Timestamp(iso_utc)
+    if ts.tzinfo is None:
+        ts = ts.tz_localize("UTC")
+    local = ts.tz_convert("Europe/Budapest")
+    return local.strftime("%Y.%m.%d. %H:%M")
+
+
+def _build_timeline(
+    *,
+    manifest: dict[str, Any],
+    qc_gaps: list[Any],
+    events: list[dict[str, Any]],
+    summary_type: str,
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = [
+        {
+            "when": _local_display(manifest["start_utc"]),
+            "kind": "Mérés kezdete",
+            "detail": f"Időszak kezdete (helyi): {manifest['start_local']}",
+        },
+        {
+            "when": _local_display(manifest["end_utc"]),
+            "kind": "Mérés vége (intervallum vége)",
+            "detail": f"Félig nyitott vége (helyi): {manifest['end_local']}",
+        },
+        {
+            "when": "—",
+            "kind": "Kalibrálás",
+            "detail": "Nincs naplózott kalibrálás ebben a riportszeletben (14. lépés).",
+        },
+    ]
+    # Significant gaps only (≥ 60 s) to keep the table readable
+    big_gaps = [g for g in qc_gaps if float(getattr(g, "duration_s", 0) or 0) >= 60.0]
+    cap = 15 if summary_type == "weekly" else 8
+    for g in big_gaps[:cap]:
+        rows.append(
+            {
+                "when": _local_display(g.start),
+                "kind": "Adatkiesés",
+                "detail": (
+                    f"{_local_display(g.start)} – {_local_display(g.end)} "
+                    f"({float(g.duration_s):.0f} s)"
+                ),
+            }
+        )
+    if len(big_gaps) > cap:
+        rows.append(
+            {
+                "when": "—",
+                "kind": "Adatkiesés (további)",
+                "detail": f"Még {len(big_gaps) - cap} kiesés ≥ 60 s — lásd QC melléklet.",
+            }
+        )
+
+    ev_cap = 12 if summary_type == "weekly" else 8
+    for ev in events[:ev_cap]:
+        if not ev.get("ended_at"):
+            continue
+        rows.append(
+            {
+                "when": _local_display(ev["started_at"]),
+                "kind": "Gépüzem (detektált)",
+                "detail": (
+                    f"{_local_display(ev['started_at'])} – "
+                    f"{_local_display(ev['ended_at'])} "
+                    f"({ev.get('duration_min', '—')} perc)"
+                ),
+            }
+        )
+    if len(events) > ev_cap:
+        rows.append(
+            {
+                "when": "—",
+                "kind": "Gépüzem (további)",
+                "detail": f"Összesen {len(events)} szakasz — teljes lista a mellékletben.",
+            }
+        )
+
+    def _sort_key(r: dict[str, str]) -> str:
+        return r["when"] if r["when"] != "—" else "9999"
+
+    rows.sort(key=_sort_key)
+    return rows
+
+
+def _compute_report_bundle(
     snapshot_dir: Path,
     *,
     config: dict[str, Any] | None = None,
     output_dir: Path | None = None,
     with_analysis: bool = True,
-) -> ReportPaths:
+) -> tuple[dict[str, Any], Path, Path, Path]:
+    """Shared metrics/charts/analysis for thin and full layouts.
+
+    Returns (ctx_core, work_dir, chart_day_path, chart_night_path).
+    """
     cfg = config or load_config()
     snap = Path(snapshot_dir)
     manifest = json.loads((snap / "manifest.json").read_text(encoding="utf-8"))
@@ -104,6 +221,9 @@ def build_thin_report(
     assess_day = assessment.get("day_window", "8h")
     assess_night = assessment.get("night_window", "30min")
 
+    site = cfg.get("site") or {}
+    instrument = cfg.get("instrument") or {}
+
     out_root = Path(output_dir or cfg.get("paths", {}).get("output_dir", "output"))
     stamp = snap.name
     work = out_root / f"report_{stamp}"
@@ -122,25 +242,6 @@ def build_thin_report(
     overall = period_stats(sound)
     day = period_stats(sound, day_only=True)
     night = period_stats(sound, day_only=False)
-
-    def fmt_stats(s, *, limit: float | None = None, peak_db: float | None = None):
-        if s is None:
-            return None
-        over = None if limit is None else s.laeq_db > limit
-        exceed = None if limit is None else round(s.laeq_db - limit, 1)
-        # Display peak = max 1-minute LAeq (not raw sample max / short spikes)
-        display_peak = round(peak_db, 1) if peak_db is not None else round(s.laeq_db, 1)
-        return {
-            "laeq_db": round(s.laeq_db, 1),
-            "l10_db": round(s.l10_db, 1),
-            "l50_db": round(s.l50_db, 1),
-            "l90_db": round(s.l90_db, 1),
-            "lmax_db": display_peak,
-            "sample_count": s.sample_count,
-            "over_limit": over,
-            "exceedance_db": exceed,
-            "limit_db": limit,
-        }
 
     daily_rows = []
     if not sound.empty:
@@ -167,17 +268,16 @@ def build_thin_report(
                 }
             )
 
-    overall_fmt = fmt_stats(
+    overall_fmt = _fmt_stats(
         overall, limit=day_limit, peak_db=sustained_peak_db(sound)
     )
-    day_fmt = fmt_stats(
+    day_fmt = _fmt_stats(
         day, limit=day_limit, peak_db=sustained_peak_db(sound, day_only=True)
     )
-    night_fmt = fmt_stats(
+    night_fmt = _fmt_stats(
         night, limit=night_limit, peak_db=sustained_peak_db(sound, day_only=False)
     )
 
-    # Alert banner — plain language for a non-expert lawyer
     alert_over = False
     alert_bits: list[str] = []
     max_exceed = None
@@ -215,7 +315,6 @@ def build_thin_report(
         if (deltas > 0).any():
             alert_over = True
             over_mins = int((deltas > 0).sum())
-            # Do NOT fold 1-minute spike peaks into headline max_exceed
             alert_bits.append(
                 f"Percenkénti bontásban {over_mins} perc volt a határérték felett."
             )
@@ -235,11 +334,13 @@ def build_thin_report(
         "spectrum_uri": None,
         "dominant_uri": None,
         "limit_note": None,
+        "events": [],
+        "detector_version": None,
     }
 
     if with_analysis:
         print("[report] üzemészlelés + elemző fejezetek…", flush=True)
-        events, score, _ = run_detection(snap)
+        events, _score, _ = run_detection(snap)
         ev_dicts = [
             {
                 "started_at": e.started_at.isoformat(),
@@ -271,8 +372,6 @@ def build_thin_report(
             fft_window, ev_df, out_path=work / "dominant_hz.png"
         )
         lim = evaluate_limits(sound, day_limit=day_limit, night_limit=night_limit)
-        # Headline max exceedance: only regulatory assessment windows
-        # (night 30 min, day 8 h) — not short 1-minute spikes.
         limit_summary = list(lim.get("summary") or [])
         assessment_rows = list(lim.get("assessment_rows") or [])
         for r in assessment_rows:
@@ -291,6 +390,12 @@ def build_thin_report(
         on_hours = float(cycle.get("total_on_hours") or 0.0)
         on_ratio = (on_hours / measure_hours) if measure_hours > 0 else 0.0
 
+        det_cfg_path = _ROOT / "config" / "detector_1.1.0.yaml"
+        det_ver = "1.1.0"
+        if det_cfg_path.exists():
+            det_cfg = yaml.safe_load(det_cfg_path.read_text(encoding="utf-8")) or {}
+            det_ver = str(det_cfg.get("param_version") or det_ver)
+
         analysis = {
             "enabled": True,
             "event_count": len(events),
@@ -308,6 +413,7 @@ def build_thin_report(
             "heatmap_uri": heatmap.resolve().as_uri(),
             "spectrum_uri": spectrum_path.resolve().as_uri(),
             "dominant_uri": dominant_path.resolve().as_uri(),
+            "detector_version": det_ver,
             "events": [
                 {
                     "started_at": e.started_at.isoformat(),
@@ -318,17 +424,57 @@ def build_thin_report(
                     if e.ended_at
                     else None,
                 }
-                for e in events[:50]
+                for e in events
             ],
         }
 
     report_id = f"NR-{stamp}"
     extract_short = manifest.get("extract_sha256", "")[:12]
+    created_at = datetime.now(timezone.utc).isoformat()
+    commit = git_commit()
+
+    alert = {
+        "over": alert_over,
+        "title": "A mért zaj meghaladja a megengedett szintet",
+        "plain_verdict": (
+            "A mért zaj többször is hangosabb, mint amit a rendelet "
+            "kisvárosias/kertvárosias lakóterületre nappal/éjjel megenged. "
+            "A piros kiemelések ezt mutatják."
+            if alert_over
+            else "Ebben az időszakban a számított átlagok a beállított "
+            "határértékek alatt maradtak."
+        ),
+        "max_exceedance_db": None if max_exceed is None else round(max_exceed, 1),
+        "max_exceedance_basis": (
+            "nappali/éjjeli átlag és rendeleti megítélési ablakok "
+            "(nappal 8 óra, éjjel 30 perc) — rövid 1 perces kilengés nélkül"
+        ),
+        "bits": alert_bits,
+        "allowed_day": day_limit,
+        "allowed_night": night_limit,
+        "measured_day": measured_day,
+        "measured_night": measured_night,
+        "limits_line": (
+            f"Jogszabály: {legal_source} · terület: {protected_area} · "
+            f"nappal max. {day_limit:.0f} dB · éjjel max. {night_limit:.0f} dB"
+        ),
+    }
+
+    disclaimer = (
+        "Ez a dokumentum a zajjal érintett (elszenvedő) fél mérési "
+        "összefoglalója ügyvédi áttekintéshez. Nem akkreditált laboratóriumi "
+        "jegyzőkönyv. A számok PeakTech kijelzős mintákból számított "
+        f"energetikus LAeq értékek. A {day_limit:.0f}/{night_limit:.0f} dB "
+        f"a {legal_source} 1. melléklet szerinti L_TH irányérték "
+        f"({protected_area}). A rendelet hivatalosan L_AM megítélési szintet "
+        "ír elő; a piros kiemelés a mért LAeq és az L_TH egyszerű összevetése."
+    )
+
     ctx = {
         "report_id": report_id,
         "version": __version__,
-        "git_commit": git_commit(),
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "git_commit": commit,
+        "created_at": created_at,
         "start_local": manifest["start_local"],
         "end_local": manifest["end_local"],
         "period_display": format_period_display(
@@ -351,59 +497,194 @@ def build_thin_report(
         "chart_day_uri": chart_day_path.resolve().as_uri(),
         "chart_night_uri": chart_night_path.resolve().as_uri(),
         "analysis": analysis,
-        "alert": {
-            "over": alert_over,
-            "title": "A mért zaj meghaladja a megengedett szintet",
-            "plain_verdict": (
-                "A mért zaj többször is hangosabb, mint amit a rendelet "
-                "kisvárosias/kertvárosias lakóterületre nappal/éjjel megenged. "
-                "A piros kiemelések ezt mutatják."
-                if alert_over
-                else "Ebben az időszakban a számított átlagok a beállított "
-                "határértékek alatt maradtak."
-            ),
-            "max_exceedance_db": None if max_exceed is None else round(max_exceed, 1),
-            "max_exceedance_basis": (
-                "nappali/éjjeli átlag és rendeleti megítélési ablakok "
-                "(nappal 8 óra, éjjel 30 perc) — rövid 1 perces kilengés nélkül"
-            ),
-            "bits": alert_bits,
-            "allowed_day": day_limit,
-            "allowed_night": night_limit,
-            "measured_day": measured_day,
-            "measured_night": measured_night,
-            "limits_line": (
-                f"Jogszabály: {legal_source} · terület: {protected_area} · "
-                f"nappal max. {day_limit:.0f} dB · éjjel max. {night_limit:.0f} dB"
-            ),
-        },
-        "disclaimer": (
-            "Ez a dokumentum a zajjal érintett (elszenvedő) fél mérési "
-            "összefoglalója ügyvédi áttekintéshez. Nem akkreditált laboratóriumi "
-            "jegyzőkönyv. A számok PeakTech kijelzős mintákból számított "
-            f"energetikus LAeq értékek. A {day_limit:.0f}/{night_limit:.0f} dB "
-            f"a {legal_source} 1. melléklet szerinti L_TH irányérték "
-            f"({protected_area}). A rendelet hivatalosan L_AM megítélési szintet "
-            "ír elő; a piros kiemelés a mért LAeq és az L_TH egyszerű összevetése."
-        ),
+        "alert": alert,
+        "disclaimer": disclaimer,
+        "site": site,
+        "instrument": instrument,
+        "manifest": manifest,
+        "snapshot_name": stamp,
     }
+    return ctx, work, chart_day_path, chart_night_path
 
+
+def _render_pdf(
+    *,
+    template_name: str,
+    ctx: dict[str, Any],
+    work: Path,
+    pdf_name: str,
+    html_name: str,
+    cfg: dict[str, Any],
+) -> tuple[Path, Path]:
     env = Environment(
-        loader=FileSystemLoader(str(_ROOT / cfg.get("paths", {}).get("templates_dir", "templates"))),
+        loader=FileSystemLoader(
+            str(_ROOT / cfg.get("paths", {}).get("templates_dir", "templates"))
+        ),
         autoescape=select_autoescape(["html", "xml"]),
     )
-    html = env.get_template("report.html").render(**ctx)
-    html_path = work / "report.html"
+    html = env.get_template(template_name).render(**ctx)
+    html_path = work / html_name
     html_path.write_text(html, encoding="utf-8")
-
     print("[report] WeasyPrint PDF render…", flush=True)
-    pdf_path = work / "report.pdf"
+    pdf_path = work / pdf_name
     HTML(string=html, base_url=str(work)).write_pdf(pdf_path)
     print("[report] kész.", flush=True)
+    return pdf_path, html_path
 
+
+def build_thin_report(
+    snapshot_dir: Path,
+    *,
+    config: dict[str, Any] | None = None,
+    output_dir: Path | None = None,
+    with_analysis: bool = True,
+) -> ReportPaths:
+    """Original 6-page lawyer slice (unchanged template)."""
+    cfg = config or load_config()
+    ctx, work, chart_day_path, chart_night_path = _compute_report_bundle(
+        snapshot_dir,
+        config=cfg,
+        output_dir=output_dir,
+        with_analysis=with_analysis,
+    )
+    # Thin template expects events capped at 50 (historical behaviour)
+    if ctx["analysis"].get("events"):
+        ctx = dict(ctx)
+        analysis = dict(ctx["analysis"])
+        analysis["events"] = analysis["events"][:50]
+        ctx["analysis"] = analysis
+
+    pdf_path, html_path = _render_pdf(
+        template_name="report.html",
+        ctx=ctx,
+        work=work,
+        pdf_name="report_thin.pdf",
+        html_name="report_thin.html",
+        cfg=cfg,
+    )
     return ReportPaths(
         pdf_path=pdf_path,
         html_path=html_path,
         chart_day_path=chart_day_path,
         chart_night_path=chart_night_path,
+    )
+
+
+def build_full_report(
+    snapshot_dir: Path,
+    *,
+    config: dict[str, Any] | None = None,
+    output_dir: Path | None = None,
+    with_analysis: bool = True,
+    summary_type: str | None = None,
+) -> ReportPaths:
+    """Step-12 full structure: summary → main → annexes."""
+    cfg = config or load_config()
+    ctx, work, chart_day_path, chart_night_path = _compute_report_bundle(
+        snapshot_dir,
+        config=cfg,
+        output_dir=output_dir,
+        with_analysis=with_analysis,
+    )
+
+    report_cfg = cfg.get("report") or {}
+    requested = summary_type or report_cfg.get("default_type") or "auto"
+    stype = resolve_summary_type(
+        ctx["manifest"]["start_utc"],
+        ctx["manifest"]["end_utc"],
+        requested,
+    )
+
+    print("[report] QC + timeline + findings…", flush=True)
+    qc = run_qc(snapshot_dir, config=cfg)
+    timeline = _build_timeline(
+        manifest=ctx["manifest"],
+        qc_gaps=qc.gaps,
+        events=list(ctx["analysis"].get("events") or []),
+        summary_type=stype,
+    )
+    findings = build_findings(
+        alert=ctx["alert"],
+        analysis=ctx["analysis"],
+        day=ctx["day"],
+        night=ctx["night"],
+        day_limit=float(ctx["day_limit"]),
+        night_limit=float(ctx["night_limit"]),
+    )
+
+    show_all_days = stype == "weekly" or len(ctx["daily_rows"]) <= 10
+    events_main_cap = 12 if stype == "weekly" else 8
+
+    full_ctx = dict(ctx)
+    full_ctx.update(
+        {
+            "summary_type": stype,
+            "summary_type_label": summary_type_label(stype),
+            "findings": findings,
+            "timeline": timeline,
+            "glossary": GLOSSARY,
+            "limitations": LIMITATIONS,
+            "qc": {
+                "coverage_pct": round(100.0 * qc.coverage_ratio, 1),
+                "sound_sample_count": qc.sound_sample_count,
+                "gap_count": len(qc.gaps),
+                "gap_ge_60s": sum(1 for g in qc.gaps if g.duration_s >= 60),
+                "duplicate_timestamps": qc.duplicate_timestamps,
+                "notes": qc.notes,
+                "level_db_min": qc.level_db_min,
+                "level_db_max": qc.level_db_max,
+            },
+            "show_all_days": show_all_days,
+            "events_main": (ctx["analysis"].get("events") or [])[:events_main_cap],
+            "events_all": ctx["analysis"].get("events") or [],
+            "scope_text": (
+                f"Ez a dokumentum {summary_type_label(stype).lower()} a "
+                f"{ctx['period_display']} időszakra. "
+                "Határa: a mért LAeq és a 27/2008. KvVM–EüM L_TH irányérték "
+                "összevetése; nem hitelesített L_AM szakértői vélemény."
+            ),
+        }
+    )
+
+    pdf_path, html_path = _render_pdf(
+        template_name="report_full.html",
+        ctx=full_ctx,
+        work=work,
+        pdf_name="report.pdf",
+        html_name="report.html",
+        cfg=cfg,
+    )
+    return ReportPaths(
+        pdf_path=pdf_path,
+        html_path=html_path,
+        chart_day_path=chart_day_path,
+        chart_night_path=chart_night_path,
+    )
+
+
+def build_report(
+    snapshot_dir: Path,
+    *,
+    layout: str = "full",
+    summary_type: str | None = None,
+    config: dict[str, Any] | None = None,
+    output_dir: Path | None = None,
+    with_analysis: bool = True,
+) -> ReportPaths:
+    cfg = config or load_config()
+    report_cfg = cfg.get("report") or {}
+    layout = (layout or report_cfg.get("default_layout") or "full").lower()
+    if layout == "thin":
+        return build_thin_report(
+            snapshot_dir,
+            config=cfg,
+            output_dir=output_dir,
+            with_analysis=with_analysis,
+        )
+    return build_full_report(
+        snapshot_dir,
+        config=cfg,
+        output_dir=output_dir,
+        with_analysis=with_analysis,
+        summary_type=summary_type,
     )

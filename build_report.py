@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI: build thin PDF from snapshot, or extract then build."""
+"""CLI: build thin or full PDF from snapshot, or extract then build."""
 
 from __future__ import annotations
 
@@ -7,14 +7,34 @@ import argparse
 from pathlib import Path
 
 from src.extract import run_extract
-from src.report import build_thin_report
+from src.report import build_report, load_config
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(description="Build thin daily LAeq PDF report")
+    cfg = load_config()
+    report_cfg = cfg.get("report") or {}
+    default_layout = report_cfg.get("default_layout") or "full"
+    default_type = report_cfg.get("default_type") or "auto"
+
+    p = argparse.ArgumentParser(
+        description="Build noise measurement PDF report (thin or full layout)"
+    )
     p.add_argument("--snapshot", type=Path, help="Existing snapshot directory")
     p.add_argument("--start", help="Local start (extract if no --snapshot)")
     p.add_argument("--end", help="Local end exclusive")
+    p.add_argument(
+        "--layout",
+        choices=("thin", "full"),
+        default=default_layout,
+        help=f"PDF layout (default: {default_layout})",
+    )
+    p.add_argument(
+        "--type",
+        dest="summary_type",
+        choices=("auto", "weekly", "monthly", "full"),
+        default=default_type,
+        help=f"Summary framing for full layout (default: {default_type})",
+    )
     args = p.parse_args(argv)
 
     if args.snapshot:
@@ -36,8 +56,17 @@ def main(argv: list[str] | None = None) -> int:
         snap = result.snapshot_dir
         print(f"[report] extract_sha256: {result.extract_hash}", flush=True)
 
-    print(f"[report] PDF építés: {snap}", flush=True)
-    paths = build_thin_report(snap)
+    print(
+        f"[report] PDF építés ({args.layout}"
+        f"{', type=' + args.summary_type if args.layout == 'full' else ''}): {snap}",
+        flush=True,
+    )
+    paths = build_report(
+        snap,
+        layout=args.layout,
+        summary_type=args.summary_type if args.layout == "full" else None,
+        config=cfg,
+    )
     print(f"[report] pdf:  {paths.pdf_path}", flush=True)
     print(f"[report] html: {paths.html_path}", flush=True)
     return 0

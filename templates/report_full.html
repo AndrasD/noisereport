@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8" />
+  <title>{{ report_id }} — {{ summary_type_label }}</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 16mm 14mm 16mm 14mm;
+      @bottom-left {
+        content: "{{ report_id }} · {{ extract_sha256_short }}";
+        font-size: 7.5pt;
+        color: #666;
+      }
+      @bottom-center {
+        content: "oldal " counter(page) " / " counter(pages);
+        font-size: 8pt;
+        color: #666;
+      }
+      @bottom-right {
+        content: "{{ summary_type_label }}";
+        font-size: 7.5pt;
+        color: #666;
+      }
+    }
+    body {
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 10.5pt;
+      color: #1a1a1a;
+      line-height: 1.4;
+      counter-reset: para;
+    }
+    h1 {
+      font-size: 15pt;
+      margin: 0 0 8pt 0;
+      color: #7f0000;
+      font-weight: 900;
+    }
+    h2 {
+      font-size: 12pt;
+      margin: 14pt 0 6pt 0;
+      border-bottom: 3px solid #c62828;
+      padding-bottom: 3pt;
+      color: #b71c1c;
+      font-weight: 900;
+    }
+    h3 {
+      font-size: 11pt;
+      margin: 10pt 0 4pt 0;
+      color: #b71c1c;
+      font-weight: 800;
+    }
+    .meta { font-size: 8.5pt; color: #555; margin-bottom: 8pt; }
+    .meta span { margin-right: 10pt; }
+    .period-banner {
+      background: #fff3e0;
+      border: 3px solid #e65100;
+      padding: 10pt 12pt;
+      margin: 0 0 12pt 0;
+    }
+    .period-banner .label {
+      font-size: 9pt;
+      font-weight: 900;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #e65100;
+      margin-bottom: 2pt;
+    }
+    .period-banner .value {
+      font-size: 15pt;
+      font-weight: 900;
+      color: #1a1a1a;
+      line-height: 1.2;
+    }
+    table { border-collapse: collapse; width: 100%; margin: 8pt 0; font-size: 9.5pt; }
+    th, td { border: 1px solid #bbb; padding: 5pt 6pt; text-align: left; vertical-align: top; }
+    th { background: #eeeeee; font-weight: 800; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    img.chart { width: 100%; max-height: 240px; object-fit: contain; margin: 6pt 0; }
+    img.chart-tall { width: 100%; max-height: 280px; object-fit: contain; margin: 6pt 0; }
+
+    .alert {
+      background: #fff;
+      color: #1a1a1a;
+      padding: 12pt 14pt;
+      margin: 0 0 12pt 0;
+      border: 5px solid #c62828;
+    }
+    .alert h2 {
+      color: #b71c1c;
+      border: none;
+      margin: 0 0 8pt 0;
+      font-size: 14pt;
+      font-weight: 900;
+    }
+    .alert .verdict { font-size: 11pt; font-weight: 700; margin: 0 0 8pt 0; }
+    .alert .max {
+      font-size: 22pt;
+      font-weight: 900;
+      line-height: 1.05;
+      margin: 0 0 8pt 0;
+      color: #c62828;
+    }
+    .alert ul { margin: 0 0 0 16pt; padding: 0; font-size: 10pt; font-weight: 700; }
+    .alert li { margin-bottom: 3pt; }
+    .alert .limits { margin-top: 8pt; font-size: 8.5pt; font-weight: 600; color: #444; }
+
+    .compare { width: 100%; margin: 0 0 12pt 0; border-collapse: collapse; }
+    .compare td {
+      width: 50%;
+      vertical-align: top;
+      padding: 10pt 12pt;
+      border: 3px solid #333;
+    }
+    .compare .ok-box { background: #e8f5e9; border-color: #2e7d32; }
+    .compare .bad-box { background: #ffebee; border-color: #c62828; }
+    .compare .label {
+      font-size: 8.5pt;
+      font-weight: 900;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 4pt;
+    }
+    .compare .ok-box .label { color: #1b5e20; }
+    .compare .bad-box .label { color: #b71c1c; }
+    .compare .big { font-size: 18pt; font-weight: 900; line-height: 1.15; }
+    .compare .bad-box .big { color: #b71c1c; }
+    .compare .ok-box .big { color: #1b5e20; }
+    .compare .sub { font-size: 9pt; margin-top: 4pt; font-weight: 600; }
+
+    tr.over { background: #ffcdd2; }
+    tr.over td { font-weight: 800; color: #b71c1c; border-color: #e57373; }
+    .over-cell { color: #c62828; font-weight: 900; }
+    .tag-over {
+      display: inline-block;
+      background: #c62828;
+      color: #fff;
+      font-weight: 900;
+      font-size: 8pt;
+      padding: 2pt 6pt;
+      letter-spacing: 0.04em;
+    }
+
+    .plain {
+      background: #fff8e1;
+      border-left: 5px solid #f9a825;
+      padding: 8pt 10pt;
+      margin: 8pt 0 12pt 0;
+      font-size: 10pt;
+      font-weight: 600;
+    }
+    .facts {
+      font-size: 10pt;
+      margin: 0 0 10pt 0;
+    }
+    .facts dt {
+      font-weight: 800;
+      float: left;
+      clear: left;
+      width: 7em;
+      color: #444;
+    }
+    .facts dd { margin: 0 0 4pt 7.5em; }
+
+    .p {
+      margin: 0 0 6pt 0;
+    }
+    .p::before {
+      counter-increment: para;
+      content: "(" counter(para) ") ";
+      font-weight: 700;
+      color: #555;
+    }
+
+    .section-label {
+      font-size: 9pt;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #666;
+      margin: 0 0 4pt 0;
+    }
+    .page-break { page-break-before: always; }
+    .keep { page-break-inside: avoid; }
+
+    .disclaimer {
+      margin-top: 10pt;
+      padding: 8pt;
+      background: #f5f5f5;
+      border-left: 3px solid #888;
+      font-size: 8pt;
+      color: #333;
+    }
+    .method { font-size: 7.5pt; color: #666; word-break: break-all; }
+    .mono { font-family: Menlo, Consolas, monospace; font-size: 8.5pt; word-break: break-all; }
+    .annex-title {
+      font-size: 13pt;
+      font-weight: 900;
+      color: #333;
+      margin: 0 0 8pt 0;
+      border-bottom: 2px solid #333;
+      padding-bottom: 4pt;
+    }
+  </style>
+</head>
+<body>
+
+  {# ========== ÖSSZEFOGLALÓ (1–2 oldal) ========== #}
+  <div class="section-label">{{ summary_type_label }} · ügyvédi áttekintés</div>
+  <div class="period-banner">
+    <div class="label">Mérési időszak</div>
+    <div class="value">{{ period_display }}</div>
+  </div>
+
+  <h1>Szomszéd hőszivattyú zaj — mérési összefoglaló</h1>
+  <div class="meta">
+    <span>Riport: {{ report_id }}</span>
+    <span>verzió {{ version }}</span>
+    <span>git {{ git_commit }}</span>
+    <span>készült: {{ created_at }}</span>
+  </div>
+
+  <dl class="facts">
+    <dt>Mit</dt><dd>Zajszint (A-súlyozott) és spektrális jelleg a szomszéd hőszivattyúhoz kapcsolódóan</dd>
+    <dt>Hol</dt><dd>{{ site.name }}{% if site.description %} — {{ site.description }}{% endif %}</dd>
+    <dt>Mérőpont</dt><dd>{{ site.measurement_point }}</dd>
+    <dt>Mikor</dt><dd>{{ period_display }} (Europe/Budapest; intervallum félig nyitott)</dd>
+    <dt>Mivel</dt><dd>{{ instrument.name }}{% if instrument.class %} · {{ instrument.class }}{% endif %} · metrika: {{ instrument.metric_id }}</dd>
+  </dl>
+
+  <p class="p">{{ scope_text }}</p>
+
+  {% if alert.over %}
+  <div class="alert keep">
+    <h2>{{ alert.title }}</h2>
+    <p class="verdict">{{ alert.plain_verdict }}</p>
+    {% if alert.max_exceedance_db is not none %}
+    <div class="max">LEGNAGYOBB TÚLLÉPÉS: +{{ "%.1f"|format(alert.max_exceedance_db) }} dB</div>
+    <div class="limits" style="margin-top:0;margin-bottom:6pt;">{{ alert.max_exceedance_basis }}</div>
+    {% endif %}
+    <ul>
+      {% for bit in alert.bits %}
+      <li>{{ bit }}</li>
+      {% endfor %}
+    </ul>
+    <div class="limits">{{ alert.limits_line }}</div>
+  </div>
+  {% endif %}
+
+  <table class="compare keep">
+    <tr>
+      <td class="ok-box">
+        <div class="label">Amit a rendelet megenged</div>
+        <div class="big">nappal {{ alert.allowed_day|int }} dB</div>
+        <div class="big">éjjel {{ alert.allowed_night|int }} dB</div>
+        <div class="sub">kisvárosias / kertvárosias lakóterület<br/>27/2008. KvVM–EüM</div>
+      </td>
+      <td class="bad-box">
+        <div class="label">Amit ebben az időszakban mértünk</div>
+        {% if alert.measured_day is not none %}
+        <div class="big">nappal {{ "%.1f"|format(alert.measured_day) }} dB</div>
+        {% else %}
+        <div class="big">nappal —</div>
+        {% endif %}
+        {% if alert.measured_night is not none %}
+        <div class="big">éjjel {{ "%.1f"|format(alert.measured_night) }} dB</div>
+        {% else %}
+        <div class="big">éjjel —</div>
+        {% endif %}
+        <div class="sub">
+          {% if alert.over %}
+          <strong>A jobb oldali számok nagyobbak a megengedettnél.</strong>
+          {% else %}
+          Ebben a szeletben az átlag a határ alatt.
+          {% endif %}
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <h2>Fő megállapítások</h2>
+  <ol style="margin:0 0 10pt 18pt;padding:0;font-size:10.5pt;font-weight:700;">
+    {% for f in findings %}
+    <li style="margin-bottom:6pt;">
+      <strong>{{ f.claim }}</strong>
+      {% if f.detail %}<div style="font-weight:500;font-size:9.5pt;color:#333;margin-top:2pt;">{{ f.detail }}</div>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+
+  <h2>Állítás–bizonyíték</h2>
+  <div class="plain">Minden fő megállapításhoz: hol van az ábra, a táblázat, a melléklet és az adatforrás.</div>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Állítás</th>
+        <th>Ábra</th>
+        <th>Tábla / melléklet</th>
+        <th>Adatforrás</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in findings %}
+      <tr>
+        <td><strong>{{ f.id }}</strong></td>
+        <td>{{ f.claim }}</td>
+        <td>{{ f.figure }}</td>
+        <td>{{ f.table }}{% if f.annex %}<br/><span style="font-size:8pt;color:#555;">{{ f.annex }}</span>{% endif %}</td>
+        <td style="font-size:8.5pt;">{{ f.source }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="disclaimer">{{ disclaimer }}</div>
+
+  {# ========== FŐ RÉSZ ========== #}
+  <div class="page-break"></div>
+  <div class="section-label">Fő rész</div>
+  <h1>Részletes bemutatás</h1>
+  <p class="p">
+    Az alábbi 5–6 ábra a lényeget mutatja. A napi bontás, a teljes eseménylista,
+    az érzékenység, a módszer és a fogalmak a mellékletekben vannak.
+  </p>
+
+  <h2>1. Mikor megy a határ fölé?</h2>
+  <div class="plain">A piros kitöltés = abban a percben a zaj a megengedett szint <strong>felett</strong> volt.</div>
+  <h3>Nappal (06–22) — határ {{ day_limit|int }} dB</h3>
+  <img class="chart" src="{{ chart_day_uri }}" alt="Nappali 1 perces zajszint" />
+  <h3>Éjjel (22–06) — határ {{ night_limit|int }} dB</h3>
+  <img class="chart" src="{{ chart_night_uri }}" alt="Éjjeli 1 perces zajszint" />
+
+  {% if analysis.enabled %}
+  <h2>2. Éjjel is jár? (üzemelési mintázat)</h2>
+  <div class="plain">
+    Az ábra <strong>nem hőmérséklet</strong>, hanem: melyik napon, melyik órában ment a gép
+    (sor = dátum, oszlop = óra). Pirosabb = nagyobb üzemarány. Éjszakai sáv: 22–06.
+  </div>
+  {% if analysis.heatmap_uri %}
+  <img class="chart-tall" src="{{ analysis.heatmap_uri }}" alt="Üzemelési mintázat" />
+  {% endif %}
+
+  <h2>3. Mennyi ideig ment a gép?</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Teljes mérési idő</th>
+        <th class="num">Ebből gépüzem</th>
+        <th class="num">Üzemarány</th>
+        <th class="num">Üzemelési szakaszok</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>{{ "%.1f"|format(analysis.measure_hours) }} óra</strong></td>
+        <td class="num"><strong>{{ "%.1f"|format(analysis.on_hours) }} óra</strong></td>
+        <td class="num over-cell"><strong>{{ "%.1f"|format(analysis.on_ratio_pct) }}%</strong></td>
+        <td class="num"><strong>{{ analysis.event_count }}</strong></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>4. Miben más a gép hangja? (spektrum)</h2>
+  <div class="plain">
+    Nem a hangosságot (dB-határt) bizonyítja, hanem az „ujjlenyomatot”: a zaj a géphez köthető.
+  </div>
+  {% if analysis.spectrum_uri %}
+  <img class="chart" src="{{ analysis.spectrum_uri }}" alt="Spektrum üzem vs nem üzem" />
+  {% endif %}
+  {% if analysis.dominant_uri %}
+  <img class="chart" src="{{ analysis.dominant_uri }}" alt="Domináns frekvencia" />
+  {% endif %}
+
+  <h2>5. Határérték a rendelet szerint</h2>
+  <div class="plain">
+    Nappal a legzajosabb folyamatos <strong>8 óra</strong>, éjjel a legzajosabb
+    <strong>fél óra</strong> — ezt mutatják az alábbi sorok.
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Mit nézünk?</th>
+        <th class="num">Határ</th>
+        <th class="num">Legzajosabb szakasz</th>
+        <th class="num">Túllépés</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in analysis.assessment_rows %}
+      <tr class="{{ 'over' if row.is_over else '' }}">
+        <td>
+          <strong>{{ row.label }}</strong><br/>
+          <span style="font-size:8.5pt;font-weight:500;color:#444;">{{ row.explain }}</span>
+        </td>
+        <td class="num">{{ row.limit_db|int }} dB</td>
+        <td class="num {{ 'over-cell' if row.is_over else '' }}">
+          {% if row.max_laeq is not none %}{{ "%.1f"|format(row.max_laeq) }} dB{% else %}—{% endif %}
+        </td>
+        <td class="num {{ 'over-cell' if row.is_over else '' }}">
+          {% if row.max_exceedance_db is not none %}{{ "%+.1f"|format(row.max_exceedance_db) }} dB{% else %}—{% endif %}
+        </td>
+        <td>{% if row.is_over %}<span class="tag-over">TÚLLÉPÉS</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <h2>6. Időrendi események</h2>
+  <div class="plain">Mérés kezdete, adatkiesések (≥ 60 s), detektált gépüzem; kalibrálás: ha naplózva van.</div>
+  <table>
+    <thead>
+      <tr><th>Idő (helyi)</th><th>Esemény</th><th>Részlet</th></tr>
+    </thead>
+    <tbody>
+      {% for row in timeline %}
+      <tr>
+        <td>{{ row.when }}</td>
+        <td><strong>{{ row.kind }}</strong></td>
+        <td style="font-size:9pt;">{{ row.detail }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>7. Korlátok és lehetséges ellenvetések</h2>
+  <table>
+    <thead>
+      <tr><th>Ellenvetés</th><th>Tényszerű válasz</th></tr>
+    </thead>
+    <tbody>
+      {% for row in limitations %}
+      <tr>
+        <td style="width:28%;"><strong>{{ row.objection }}</strong></td>
+        <td style="font-size:9.5pt;">{{ row.answer }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# ========== MELLÉKLETEK ========== #}
+  <div class="page-break"></div>
+  <div class="annex-title">Melléklet A — Napi összesítők</div>
+  <p class="p">Napi energetikus LAeq és 1 perces csúcs; a Δ a nappali {{ day_limit|int }} dB határhoz képest.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Dátum</th>
+        <th class="num">Átlag</th>
+        <th class="num">Csúcs (1 perc)</th>
+        <th class="num">Δ nappali határhoz</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in daily_rows %}
+      <tr class="{{ 'over' if row.over_limit else '' }}">
+        <td><strong>{{ row.date }}</strong></td>
+        <td class="num {{ 'over-cell' if row.over_limit else '' }}">{{ "%.1f"|format(row.laeq_db) }} dB</td>
+        <td class="num">{{ "%.1f"|format(row.lmax_db) }} dB</td>
+        <td class="num {{ 'over-cell' if row.over_limit else '' }}">{{ "%+.1f"|format(row.exceedance_db) }} dB</td>
+        <td>{% if row.over_limit %}<span class="tag-over">TÚLLÉPÉS</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <table style="margin-top:12pt;">
+    <thead>
+      <tr>
+        <th>Időszak</th>
+        <th class="num">Mért átlag</th>
+        <th class="num">Megengedett</th>
+        <th class="num">Különbség</th>
+        <th class="num">Csúcs (1 perc)</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for label, block in [("Egész időszak", overall), ("Nappal (06–22)", day), ("Éjjel (22–06)", night)] %}
+      <tr class="{{ 'over' if block and block.over_limit else '' }}">
+        <td><strong>{{ label }}</strong></td>
+        {% if block %}
+        <td class="num {{ 'over-cell' if block.over_limit else '' }}">{{ "%.1f"|format(block.laeq_db) }} dB</td>
+        <td class="num">{{ block.limit_db|int if block.limit_db is not none else "—" }} dB</td>
+        <td class="num {{ 'over-cell' if block.over_limit else '' }}">
+          {% if block.exceedance_db is not none %}{{ "%+.1f"|format(block.exceedance_db) }} dB{% else %}—{% endif %}
+        </td>
+        <td class="num">{{ "%.1f"|format(block.lmax_db) }} dB</td>
+        <td>{% if block.over_limit %}<span class="tag-over">TÚLLÉPÉS</span>{% endif %}</td>
+        {% else %}
+        <td class="num" colspan="5">nincs adat</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if analysis.enabled %}
+  <div class="page-break"></div>
+  <div class="annex-title">Melléklet B — Érzékenység (megítélési ablakok)</div>
+  <div class="plain">
+    Ha a mérés 1–3 dB-lel túl magas lenne (a gép valójában halkabb), akkor is
+    túllépi-e a határértéket a rendeleti 8 órás / 30 perces ablakokban?
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Időszak</th>
+        <th class="num">Ha a mérés<br/>ennyivel túl magas</th>
+        <th class="num">Akkor is határ felett<br/>(hány ablak / összes)</th>
+        <th class="num">Arány</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in analysis.sensitivity_assessment %}
+      <tr class="{{ 'over' if row.over_if_minus > 0 else '' }}">
+        <td><strong>{{ row.window_label }}</strong></td>
+        <td class="num">{{ row.delta_db|int }} dB</td>
+        <td class="num {{ 'over-cell' if row.over_if_minus > 0 else '' }}">
+          <strong>{{ row.over_if_minus }}</strong> / {{ row.n }}
+        </td>
+        <td class="num {{ 'over-cell' if row.over_if_minus > 0 else '' }}">
+          {{ row.pct_if_quieter|int }}%
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="page-break"></div>
+  <div class="annex-title">Melléklet C — Ciklus- / eseménytábla</div>
+  <p class="p">Detektált gépüzemi szakaszok (offline acoustic_hysteresis {{ analysis.detector_version }}).</p>
+  {% if events_all %}
+  <table>
+    <thead><tr><th>Kezdet (UTC ISO)</th><th>Vég</th><th class="num">Perc</th></tr></thead>
+    <tbody>
+      {% for ev in events_all %}
+      <tr>
+        <td style="font-size:8.5pt;">{{ ev.started_at }}</td>
+        <td style="font-size:8.5pt;">{{ ev.ended_at }}</td>
+        <td class="num"><strong>{{ ev.duration_min }}</strong></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>Nincs lezárt detektált esemény ebben az időszakban.</p>
+  {% endif %}
+  {% endif %}
+
+  <div class="page-break"></div>
+  <div class="annex-title">Melléklet D — Módszer és paraméterek</div>
+  <p class="p"><strong>Metrika:</strong></p>
+  <p class="method">{{ metric_method }}</p>
+  <table>
+    <tbody>
+      <tr><th>Jogszabály</th><td>{{ legal_source }} · <span class="mono">{{ legal_url }}</span></td></tr>
+      <tr><th>Védett terület</th><td>{{ protected_area }}</td></tr>
+      <tr><th>Határ nappal / éjjel</th><td>{{ day_limit|int }} / {{ night_limit|int }} dB (L_TH)</td></tr>
+      <tr><th>Megítélési idő</th><td>nappal {{ assess_day }}, éjjel {{ assess_night }}</td></tr>
+      <tr><th>Műszer</th><td>{{ instrument.name }} · {{ instrument.class }}</td></tr>
+      <tr><th>Kalibrálás</th><td>{{ instrument.calibration_status }}</td></tr>
+      <tr><th>Detektor</th><td>acoustic_hysteresis {{ analysis.detector_version or "—" }}</td></tr>
+      <tr><th>Kódverzió</th><td>noisereport {{ version }} · git {{ git_commit }}</td></tr>
+    </tbody>
+  </table>
+  <p class="p" style="margin-top:8pt;">{{ instrument.note }}</p>
+
+  <div class="page-break"></div>
+  <div class="annex-title">Melléklet E — Adatok sértetlensége</div>
+  <p class="p">
+    Az időszak adatai egyszeri <strong>pillanatképként</strong> (snapshot) lettek kivonva.
+    A kivonat SHA-256 hash-e azonosítja a fájlokat: ha bármely bájt változik, a hash más lesz.
+  </p>
+  <table>
+    <tbody>
+      <tr><th>Snapshot</th><td class="mono">{{ snapshot_name }}</td></tr>
+      <tr><th>Extract SHA-256</th><td class="mono">{{ extract_sha256 }}</td></tr>
+      <tr><th>Rövid kivonat</th><td class="mono">{{ extract_sha256_short }}</td></tr>
+      <tr><th>Időszak (UTC)</th><td class="mono">{{ manifest.start_utc }} → {{ manifest.end_utc }}</td></tr>
+      <tr><th>Riport készült (UTC)</th><td class="mono">{{ created_at }}</td></tr>
+      <tr><th>Git commit</th><td class="mono">{{ git_commit }}</td></tr>
+      <tr><th>Lefedettség (QC)</th><td>{{ qc.coverage_pct }}% · {{ qc.sound_sample_count }} minta · kiesés ≥60 s: {{ qc.gap_ge_60s }}</td></tr>
+    </tbody>
+  </table>
+  <div class="plain">
+    <strong>Ellenőrzés (közérthetően):</strong> ugyanarra az időszakra újra futtatott extract
+    ugyanazt a SHA-256-ot adja, ha az adatbázis tartalma nem változott. A riport láblécében
+    a rövid hash és a riportazonosító minden oldalon szerepel. Az RFC 3161 időbélyeg
+    és a független verify script a 13. lépés tárgya.
+  </div>
+  {% if qc.notes %}
+  <p style="font-size:9pt;color:#555;">QC megjegyzések: {{ qc.notes | join("; ") }}</p>
+  {% endif %}
+
+  <div class="page-break"></div>
+  <div class="annex-title">Melléklet F — Fogalomtár</div>
+  <table>
+    <thead><tr><th>Fogalom</th><th>Jelentés</th></tr></thead>
+    <tbody>
+      {% for g in glossary %}
+      <tr>
+        <td style="width:22%;"><strong>{{ g.term }}</strong></td>
+        <td style="font-size:9.5pt;">{{ g.def }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="disclaimer" style="margin-top:16pt;">{{ disclaimer }}</div>
+</body>
+</html>
