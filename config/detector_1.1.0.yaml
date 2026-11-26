@@ -1,0 +1,10 @@
+method: acoustic_hysteresis
+param_version: "1.1.0"
+parameters:
+  window_seconds: 5
+  start_delta_db: 5.0
+  stop_delta_db: 3.0
+  start_confirm_windows: 3
+  stop_confirm_windows: 6
+  min_event_seconds: 15
+  manual_truth: true

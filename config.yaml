@@ -1,0 +1,52 @@
+timezone: Europe/Budapest
+
+# 27/2008. (XII. 3.) KvVM–EüM — üzemi zaj, 1. melléklet 1. pont
+# https://net.jogtar.hu/jogszabaly?docid=a0800027.kvv
+# Alapértelmezés: lakóterület (kisvárosias/kertvárosias/falusias/telepszerű) → 50 / 40 dB L_TH
+# A határértékek L_AM megítélési szintre vonatkoznak; a riport LAeq-je nem hitelesített L_AM.
+limits:
+  legal_source: "27/2008. (XII. 3.) KvVM–EüM együttes rendelet"
+  legal_url: "https://net.jogtar.hu/jogszabaly?docid=a0800027.kvv"
+  annex: "1. melléklet 1. pont (üzemi / szabadidős)"
+  protected_area: "Lakóterület (kisvárosias, kertvárosias beépítésű)"
+  protected_area_confirmed: true
+  limits_dba:
+    day: 50.0      # 06:00–22:00 local
+    night: 40.0    # 22:00–06:00 local
+  # 2. § (2): megítélési idő
+  assessment:
+    day_window: "8h"       # legnagyobb zajterhelést adó folyamatos 8 óra
+    night_window: "30min"  # legnagyobb zajterhelést adó fél óra
+
+# backward-compat alias used by existing code
+limits_dba:
+  day: 50.0
+  night: 40.0
+
+day_hours:
+  start: "06:00"
+  end: "22:00"
+
+# PeakTech display stream ≈ 20 Hz (A5 0D frames).
+expected_samples_per_minute: 1200.0
+
+metric_method: >-
+  peaktech_display_energetic_v1:
+  laeq=10*log10(mean(10**(L/10)));
+  L10=P90_dB;L50=P50_dB;L90=P10_dB_background;
+  source=PeakTech_A5_0D_display_not_integrating_meter
+
+paths:
+  snapshots_dir: snapshots
+  output_dir: output
+  templates_dir: templates
+
+extract:
+  tables:
+    - sound_sample
+    - fft_band
+    - fft_window
+    - manual_observations
+    - minute_stat
+    - gps_fix
+    - environment_sample

@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8" />
+  <title>{{ report_id }}</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 14mm 12mm 14mm 12mm;
+      @bottom-center {
+        content: "oldal " counter(page) " / " counter(pages);
+        font-size: 8pt;
+        color: #666;
+      }
+    }
+    body {
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 10.5pt;
+      color: #1a1a1a;
+      line-height: 1.35;
+    }
+    h1 {
+      font-size: 14pt;
+      margin: 0 0 6pt 0;
+      color: #7f0000;
+      font-weight: 900;
+    }
+    h2 {
+      font-size: 12pt;
+      margin: 14pt 0 6pt 0;
+      border-bottom: 3px solid #c62828;
+      padding-bottom: 3pt;
+      color: #b71c1c;
+      font-weight: 900;
+    }
+    .meta { font-size: 8.5pt; color: #555; margin-bottom: 8pt; }
+    .meta span { margin-right: 10pt; }
+    .period-banner {
+      background: #fff3e0;
+      border: 3px solid #e65100;
+      padding: 10pt 12pt;
+      margin: 0 0 12pt 0;
+    }
+    .period-banner .label {
+      font-size: 9pt;
+      font-weight: 900;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #e65100;
+      margin-bottom: 2pt;
+    }
+    .period-banner .value {
+      font-size: 16pt;
+      font-weight: 900;
+      color: #1a1a1a;
+      line-height: 1.2;
+    }
+    table { border-collapse: collapse; width: 100%; margin: 8pt 0; font-size: 9.5pt; }
+    th, td { border: 1px solid #bbb; padding: 5pt 6pt; text-align: left; }
+    th { background: #eeeeee; font-weight: 800; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    img.chart { width: 100%; max-height: 270px; object-fit: contain; margin: 6pt 0; }
+
+    .alert {
+      background: #fff;
+      color: #1a1a1a;
+      padding: 14pt 14pt 12pt 14pt;
+      margin: 0 0 12pt 0;
+      border: 5px solid #c62828;
+    }
+    .alert h2 {
+      color: #b71c1c;
+      border: none;
+      margin: 0 0 8pt 0;
+      font-size: 15pt;
+      font-weight: 900;
+      line-height: 1.2;
+    }
+    .alert .verdict {
+      font-size: 11.5pt;
+      font-weight: 700;
+      margin: 0 0 10pt 0;
+      line-height: 1.35;
+      color: #1a1a1a;
+    }
+    .alert .max {
+      font-size: 26pt;
+      font-weight: 900;
+      line-height: 1.05;
+      margin: 0 0 10pt 0;
+      letter-spacing: -0.01em;
+      color: #c62828;
+    }
+    .alert ul { margin: 0 0 0 16pt; padding: 0; font-size: 10.5pt; font-weight: 700; color: #1a1a1a; }
+    .alert li { margin-bottom: 3pt; }
+    .alert .limits { margin-top: 10pt; font-size: 8.5pt; font-weight: 600; color: #444; }
+
+    .compare {
+      width: 100%;
+      margin: 0 0 12pt 0;
+      border-collapse: collapse;
+    }
+    .compare td {
+      width: 50%;
+      vertical-align: top;
+      padding: 10pt 12pt;
+      border: 3px solid #333;
+    }
+    .compare .ok-box {
+      background: #e8f5e9;
+      border-color: #2e7d32;
+    }
+    .compare .bad-box {
+      background: #ffebee;
+      border-color: #c62828;
+    }
+    .compare .label {
+      font-size: 8.5pt;
+      font-weight: 900;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 4pt;
+    }
+    .compare .ok-box .label { color: #1b5e20; }
+    .compare .bad-box .label { color: #b71c1c; }
+    .compare .big {
+      font-size: 20pt;
+      font-weight: 900;
+      line-height: 1.15;
+    }
+    .compare .bad-box .big { color: #b71c1c; }
+    .compare .ok-box .big { color: #1b5e20; }
+    .compare .sub { font-size: 9pt; margin-top: 4pt; font-weight: 600; }
+
+    tr.over { background: #ffcdd2; }
+    tr.over td { font-weight: 800; color: #b71c1c; border-color: #e57373; }
+    .over-cell { color: #c62828; font-weight: 900; }
+    .tag-over {
+      display: inline-block;
+      background: #c62828;
+      color: #fff;
+      font-weight: 900;
+      font-size: 8pt;
+      padding: 2pt 6pt;
+      letter-spacing: 0.04em;
+    }
+
+    .plain {
+      background: #fff8e1;
+      border-left: 5px solid #f9a825;
+      padding: 8pt 10pt;
+      margin: 8pt 0 12pt 0;
+      font-size: 10pt;
+      font-weight: 600;
+    }
+
+    .disclaimer {
+      margin-top: 12pt;
+      padding: 8pt;
+      background: #f5f5f5;
+      border-left: 3px solid #888;
+      font-size: 8pt;
+      color: #333;
+    }
+    .method { font-size: 7.5pt; color: #666; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <div class="period-banner">
+    <div class="label">Mérési időszak</div>
+    <div class="value">{{ period_display }}</div>
+  </div>
+
+  {% if alert.over %}
+  <div class="alert">
+    <h2>{{ alert.title }}</h2>
+    <p class="verdict">{{ alert.plain_verdict }}</p>
+    {% if alert.max_exceedance_db is not none %}
+    <div class="max">LEGNAGYOBB TÚLLÉPÉS: +{{ "%.1f"|format(alert.max_exceedance_db) }} dB</div>
+    <div class="limits" style="margin-top:0;margin-bottom:8pt;opacity:0.95;">
+      {{ alert.max_exceedance_basis }}
+    </div>
+    {% endif %}
+    <ul>
+      {% for bit in alert.bits %}
+      <li>{{ bit }}</li>
+      {% endfor %}
+    </ul>
+    <div class="limits">{{ alert.limits_line }}</div>
+  </div>
+  {% endif %}
+
+  <table class="compare">
+    <tr>
+      <td class="ok-box">
+        <div class="label">Amit a rendelet megenged</div>
+        <div class="big">nappal {{ alert.allowed_day|int }} dB</div>
+        <div class="big">éjjel {{ alert.allowed_night|int }} dB</div>
+        <div class="sub">kisvárosias / kertvárosias lakóterület<br/>27/2008. KvVM–EüM</div>
+      </td>
+      <td class="bad-box">
+        <div class="label">Amit ebben az időszakban mértünk</div>
+        {% if alert.measured_day is not none %}
+        <div class="big">nappal {{ "%.1f"|format(alert.measured_day) }} dB</div>
+        {% else %}
+        <div class="big">nappal —</div>
+        {% endif %}
+        {% if alert.measured_night is not none %}
+        <div class="big">éjjel {{ "%.1f"|format(alert.measured_night) }} dB</div>
+        {% else %}
+        <div class="big">éjjel —</div>
+        {% endif %}
+        <div class="sub">
+          {% if alert.over %}
+          <strong>A jobb oldali számok nagyobbak a megengedettnél.</strong>
+          {% else %}
+          Ebben a szeletben az átlag a határ alatt.
+          {% endif %}
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <h1>Szomszéd hőszivattyú zaj — mérési összefoglaló</h1>
+  <div class="plain">
+    <strong>Mit kell látni?</strong>
+    A piros kiemelések azt jelzik: a mért zaj
+    <em>hangosabb</em>, mint amit a jogszabály ehhez a lakókörnyezethez megenged.
+    A lenti ábra időben mutatja, mikor megy a gép a határ fölé.
+  </div>
+
+  <h2>1. Számok egy pillantásra</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Időszak</th>
+        <th class="num">Mért átlag</th>
+        <th class="num">Megengedett</th>
+        <th class="num">Különbség</th>
+        <th class="num">Csúcs (1 perc)</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for label, block in [("Egész időszak", overall), ("Nappal (06–22)", day), ("Éjjel (22–06)", night)] %}
+      <tr class="{{ 'over' if block and block.over_limit else '' }}">
+        <td><strong>{{ label }}</strong></td>
+        {% if block %}
+        <td class="num {{ 'over-cell' if block.over_limit else '' }}">{{ "%.1f"|format(block.laeq_db) }} dB</td>
+        <td class="num">{{ block.limit_db|int if block.limit_db is not none else "—" }} dB</td>
+        <td class="num {{ 'over-cell' if block.over_limit else '' }}">
+          {% if block.exceedance_db is not none %}
+            {{ "%+.1f"|format(block.exceedance_db) }} dB
+          {% else %}—{% endif %}
+        </td>
+        <td class="num">{{ "%.1f"|format(block.lmax_db) }} dB</td>
+        <td>{% if block.over_limit %}<span class="tag-over">TÚLLÉPÉS</span>{% endif %}</td>
+        {% else %}
+        <td class="num" colspan="5">nincs adat</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>2. Mikor megy a határ fölé?</h2>
+  <div class="plain">A piros kitöltés = abban a percben a zaj a megengedett szint <strong>felett</strong> volt. Két külön ábra: nappal (határ {{ day_limit|int }} dB) és éjjel (határ {{ night_limit|int }} dB).</div>
+  <h3 style="color:#b71c1c;font-weight:900;margin:10pt 0 4pt 0;">Nappal (06–22) — határ {{ day_limit|int }} dB</h3>
+  <img class="chart" src="{{ chart_day_uri }}" alt="Nappali 1 perces zajszint" />
+  <h3 style="color:#b71c1c;font-weight:900;margin:10pt 0 4pt 0;">Éjjel (22–06) — határ {{ night_limit|int }} dB</h3>
+  <img class="chart" src="{{ chart_night_uri }}" alt="Éjjeli 1 perces zajszint" />
+
+  <h2>3. Naponta</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Dátum</th>
+        <th class="num">Átlag</th>
+        <th class="num">Csúcs (1 perc)</th>
+        <th class="num">Δ a nappali határhoz</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in daily_rows %}
+      <tr class="{{ 'over' if row.over_limit else '' }}">
+        <td><strong>{{ row.date }}</strong></td>
+        <td class="num {{ 'over-cell' if row.over_limit else '' }}">{{ "%.1f"|format(row.laeq_db) }} dB</td>
+        <td class="num {{ 'over-cell' if row.over_limit else '' }}">{{ "%.1f"|format(row.lmax_db) }} dB</td>
+        <td class="num {{ 'over-cell' if row.over_limit else '' }}">{{ "%+.1f"|format(row.exceedance_db) }} dB</td>
+        <td>{% if row.over_limit %}<span class="tag-over">TÚLLÉPÉS</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if analysis.enabled %}
+  <h2>4. Mennyi ideig ment a gép?</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Teljes mérési idő</th>
+        <th class="num">Ebből gépüzem</th>
+        <th class="num">Üzemarány</th>
+        <th class="num">Üzemelési szakaszok</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>{{ "%.1f"|format(analysis.measure_hours) }} óra</strong></td>
+        <td class="num"><strong>{{ "%.1f"|format(analysis.on_hours) }} óra</strong></td>
+        <td class="num over-cell"><strong>{{ "%.1f"|format(analysis.on_ratio_pct) }}%</strong></td>
+        <td class="num"><strong>{{ analysis.event_count }}</strong></td>
+      </tr>
+    </tbody>
+  </table>
+  {% if analysis.events %}
+  <table>
+    <thead><tr><th>Kezdet</th><th>Vég</th><th class="num">Perc</th></tr></thead>
+    <tbody>
+      {% for ev in analysis.events %}
+      <tr>
+        <td>{{ ev.started_at }}</td>
+        <td>{{ ev.ended_at }}</td>
+        <td class="num"><strong>{{ ev.duration_min }}</strong></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <h2>5. Éjjel is jár? (üzemelési mintázat)</h2>
+  <div class="plain">
+    Az ábra <strong>nem hőmérséklet</strong>, hanem azt mutatja: <strong>melyik napon, melyik órában ment a gép</strong>
+    (sor = dátum, oszlop = óra). Minél pirosabb a négyzet, annál nagyobb arányban járt abban az órában.
+    Az éjszakai sáv (22–06) kiemelt — ha ott is piros, éjjel is üzemelt.
+  </div>
+  {% if analysis.heatmap_uri %}
+  <img class="chart" src="{{ analysis.heatmap_uri }}" alt="Üzemelési mintázat dátum × óra" />
+  {% endif %}
+
+  <h2>6. Miben más a gép hangja? (spektrum)</h2>
+  <div class="plain">
+    Ez a rész <strong>nem a hangosságot</strong> (dB-határértéket) bizonyítja,
+    hanem azt: a zajnak van <strong>„ujjlenyomata”</strong>, és az a szomszéd géphez köthető.
+  </div>
+  {% if analysis.spectrum_uri %}
+  <img class="chart" src="{{ analysis.spectrum_uri }}" alt="Spektrum üzem vs nem üzem" />
+  {% endif %}
+  {% if analysis.dominant_uri %}
+  <img class="chart" src="{{ analysis.dominant_uri }}" alt="Domináns frekvencia" />
+  {% endif %}
+  <div class="plain">
+    <strong>Hogyan olvasd?</strong>
+    <ul style="margin:6pt 0 0 16pt;padding:0;">
+      <li><strong>Felső ábra:</strong> narancs = gép jár, kék = nem jár.
+        Ha a narancs magasabb, üzem közben több a zaj, mint anélkül.
+        A zöld vonal mutatja, melyik hangmagasságokon nő leginkább a zaj
+        (gépi / ventilátoros jelleg).</li>
+      <li><strong>Alsó ábra:</strong> üzem közben sokkal többször jelenik meg
+        egy stabil, ismétlődő hangmagasság. Kikapcsolva ez gyengébb —
+        tehát a hangnak van gépre jellemző mintázata.</li>
+    </ul>
+    <p style="margin:8pt 0 0 0;">
+      <strong>Egy mondatban:</strong> amikor a gép megy, más (és hangosabb) a hangkép;
+      kikapcsolva ez a jelleg eltűnik / gyengül — a zavaró zaj a géphez köthető.
+      A jogi határérték-összevetés a következő pontban van.
+    </p>
+  </div>
+
+  <h2>7. Határérték a rendelet szerint</h2>
+  <div class="plain">
+    A rendelet <strong>nem az egész nap átlagát</strong> kéri, hanem:
+    <strong>nappal a legzajosabb folyamatos 8 órát</strong>,
+    <strong>éjjel a legzajosabb folyamatos fél órát</strong>.
+    Az alábbi két sor pont ezt mutatja.
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Mit nézünk?</th>
+        <th class="num">Határ</th>
+        <th class="num">Legzajosabb szakasz</th>
+        <th class="num">Túllépés</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in analysis.assessment_rows %}
+      <tr class="{{ 'over' if row.is_over else '' }}">
+        <td>
+          <strong>{{ row.label }}</strong><br/>
+          <span style="font-size:8.5pt;font-weight:500;color:#444;">{{ row.explain }}</span>
+        </td>
+        <td class="num">{{ row.limit_db|int }} dB</td>
+        <td class="num {{ 'over-cell' if row.is_over else '' }}">
+          {% if row.max_laeq is not none %}{{ "%.1f"|format(row.max_laeq) }} dB{% else %}—{% endif %}
+        </td>
+        <td class="num {{ 'over-cell' if row.is_over else '' }}">
+          {% if row.max_exceedance_db is not none %}{{ "%+.1f"|format(row.max_exceedance_db) }} dB{% else %}—{% endif %}
+        </td>
+        <td>{% if row.is_over %}<span class="tag-over">TÚLLÉPÉS</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>8. Mi van, ha a mérés pontatlan?</h2>
+  <div class="plain">
+    A műszer és a számítás hibázhat pár decibelt.
+    A kérdés: <strong>még ha a mért érték 1–3 dB-lel magasabb is a valóságosnál</strong>
+    (tehát a gép valójában halkabb), akkor is túllépi-e a határértéket?
+    Az alábbi táblázat csak a rendelet szerinti megítélési időket nézi
+    (nappal legzajosabb 8 óra, éjjel legzajosabb fél óra).
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Időszak</th>
+        <th class="num">Ha a mérés<br/>ennyivel túl magas</th>
+        <th class="num">Akkor is határ felett<br/>(hány ablak / összes)</th>
+        <th class="num">Arány</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in analysis.sensitivity_assessment %}
+      <tr class="{{ 'over' if row.over_if_minus > 0 else '' }}">
+        <td><strong>{{ row.window_label }}</strong></td>
+        <td class="num">{{ row.delta_db|int }} dB</td>
+        <td class="num {{ 'over-cell' if row.over_if_minus > 0 else '' }}">
+          <strong>{{ row.over_if_minus }}</strong> / {{ row.n }}
+        </td>
+        <td class="num {{ 'over-cell' if row.over_if_minus > 0 else '' }}">
+          {{ row.pct_if_quieter|int }}%
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p style="font-size:9.5pt;color:#444;">
+    Olvasási példa: ha a mérés <strong>3 dB-lel túl magas</strong> lenne, az éjjeli félórás
+    ablakok közül még mindig a piros arányú rész a megengedett szint felett maradna.
+  </p>
+  {% endif %}
+
+  <p class="method">Módszer: {{ metric_method }}</p>
+  <div class="disclaimer">{{ disclaimer }}</div>
+</body>
+</html>
