@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import src.macos_libs  # noqa: F401  — before WeasyPrint (Homebrew dylib path)
+
 import json
 import subprocess
 from dataclasses import dataclass
@@ -19,7 +21,6 @@ from src.charts import (
     day_night_laeq_charts,
     night_exceedance_chart,
     mean_temp_in_interval,
-    outdoor_temperature_chart,
     outdoor_temperature_summary,
 )
 from src.detect import run_detection
@@ -106,12 +107,38 @@ def _fmt_stats(s, *, limit: float | None = None, peak_db: float | None = None):
     }
 
 
-def _local_display(iso_utc: str) -> str:
-    ts = pd.Timestamp(iso_utc)
+def _local_display(value: str | datetime | pd.Timestamp) -> str:
+    """Local Europe/Budapest time as YYYY.MM.DD HH:MM."""
+    ts = pd.Timestamp(value)
     if ts.tzinfo is None:
         ts = ts.tz_localize("UTC")
     local = ts.tz_convert("Europe/Budapest")
-    return local.strftime("%Y.%m.%d. %H:%M")
+    return local.strftime("%Y.%m.%d %H:%M")
+
+
+def format_hours_minutes(hours: float | None) -> str:
+    """e.g. 64.9 → '64 óra 54 perc'; under 1 min → 'N sec'."""
+    if hours is None:
+        return "—"
+    total_sec = int(round(float(hours) * 3600.0))
+    if total_sec < 0:
+        total_sec = 0
+    if total_sec < 60:
+        return f"{total_sec} sec"
+    total_min = total_sec // 60
+    h, m = divmod(total_min, 60)
+    if h and m:
+        return f"{h} óra {m} perc"
+    if h:
+        return f"{h} óra"
+    return f"{m} perc"
+
+
+def format_minutes_hm(minutes: float | None) -> str:
+    """e.g. 162.1 → '2 óra 42 perc'; 0.3 → '18 sec'."""
+    if minutes is None:
+        return "—"
+    return format_hours_minutes(float(minutes) / 60.0)
 
 
 def _build_timeline(
@@ -131,11 +158,6 @@ def _build_timeline(
             "when": _local_display(manifest["end_utc"]),
             "kind": "Mérés vége (intervallum vége)",
             "detail": f"Félig nyitott vége (helyi): {manifest['end_local']}",
-        },
-        {
-            "when": "—",
-            "kind": "Kalibrálás",
-            "detail": "Nincs naplózott kalibrálás ebben a riportszeletben (14. lépés).",
         },
     ]
     # Significant gaps only (≥ 60 s) to keep the table readable
@@ -264,8 +286,10 @@ def _compute_report_bundle(
                 }
             )
 
+    # Whole-period LAeq has no single decree limit (day 50 / night 40 differ) —
+    # keep as info only, never mark TÚLLÉPÉS against the daytime limit.
     overall_fmt = _fmt_stats(
-        overall, limit=day_limit, peak_db=sustained_peak_db(sound)
+        overall, limit=None, peak_db=sustained_peak_db(sound)
     )
     day_fmt = _fmt_stats(
         day, limit=day_limit, peak_db=sustained_peak_db(sound, day_only=True)
@@ -319,7 +343,9 @@ def _compute_report_bundle(
         "enabled": False,
         "event_count": 0,
         "measure_hours": 0.0,
+        "measure_hm": "0 perc",
         "on_hours": 0.0,
+        "on_hm": "0 perc",
         "on_ratio_pct": 0.0,
         "cycle": None,
         "limit_summary": [],
@@ -331,7 +357,6 @@ def _compute_report_bundle(
         "dominant_uri": None,
         "night_exceedance_uri": None,
         "night_exceedance_rows": [],
-        "temperature_uri": None,
         "temperature": None,
         "limit_note": None,
         "events": [],
@@ -369,6 +394,15 @@ def _compute_report_bundle(
                     else max(max_exceed, float(r["max_exceedance_db"]))
                 )
 
+    env = (
+        pd.read_parquet(snap / "environment_sample.parquet")
+        if (snap / "environment_sample.parquet").exists()
+        else pd.DataFrame()
+    )
+    temp_summary = outdoor_temperature_summary(
+        env, events=ev_df if with_analysis else None
+    )
+
     print(
         f"[report] nappali+éjjeli ábra "
         f"(ablak+üzem overlay)… ({len(sound)} hangminta)",
@@ -390,20 +424,9 @@ def _compute_report_bundle(
         out_path=work / "night_exceedance.png",
         night_limit=night_limit,
     )
+    for row in night_exc_rows:
+        row["minutes_over_hm"] = format_minutes_hm(row.get("minutes_over"))
 
-    env = (
-        pd.read_parquet(snap / "environment_sample.parquet")
-        if (snap / "environment_sample.parquet").exists()
-        else pd.DataFrame()
-    )
-    temp_summary = outdoor_temperature_summary(
-        env, events=ev_df if with_analysis else None
-    )
-    temp_path = outdoor_temperature_chart(
-        env,
-        out_path=work / "outdoor_temperature.png",
-        events=ev_df if with_analysis else None,
-    )
 
     if with_analysis:
         print("[report] spektrum / mintázat…", flush=True)
@@ -449,7 +472,9 @@ def _compute_report_bundle(
             "enabled": True,
             "event_count": len(events),
             "measure_hours": round(measure_hours, 2),
+            "measure_hm": format_hours_minutes(measure_hours),
             "on_hours": round(on_hours, 2),
+            "on_hm": format_hours_minutes(on_hours),
             "on_ratio_pct": round(100.0 * on_ratio, 1),
             "cycle": cycle,
             "limit_summary": limit_summary,
@@ -464,18 +489,24 @@ def _compute_report_bundle(
             "dominant_uri": dominant_path.resolve().as_uri(),
             "night_exceedance_uri": night_exc_path.resolve().as_uri(),
             "night_exceedance_rows": night_exc_rows,
-            "temperature_uri": temp_path.resolve().as_uri() if temp_path else None,
             "temperature": temp_summary,
             "detector_version": det_ver,
             "events": [
                 {
-                    "started_at": e.started_at.isoformat(),
-                    "ended_at": e.ended_at.isoformat() if e.ended_at else None,
+                    "started_at": _local_display(e.started_at),
+                    "ended_at": _local_display(e.ended_at) if e.ended_at else None,
                     "duration_min": round(
                         (e.ended_at - e.started_at).total_seconds() / 60.0, 1
                     )
                     if e.ended_at
                     else None,
+                    "duration_hm": (
+                        format_minutes_hm(
+                            (e.ended_at - e.started_at).total_seconds() / 60.0
+                        )
+                        if e.ended_at
+                        else "—"
+                    ),
                     "temp_c": (
                         mean_temp_in_interval(env, e.started_at, e.ended_at)
                         if e.ended_at is not None
@@ -488,9 +519,6 @@ def _compute_report_bundle(
     else:
         analysis["night_exceedance_uri"] = night_exc_path.resolve().as_uri()
         analysis["night_exceedance_rows"] = night_exc_rows
-        analysis["temperature_uri"] = (
-            temp_path.resolve().as_uri() if temp_path else None
-        )
         analysis["temperature"] = temp_summary
 
     report_id = f"NR-{stamp}"
@@ -706,7 +734,7 @@ def build_full_report(
                 f"Ez a dokumentum {summary_type_label(stype).lower()} a "
                 f"{ctx['period_display']} időszakra. "
                 "Határa: a mért LAeq és a 27/2008. KvVM–EüM L_TH irányérték "
-                "összevetése; nem hitelesített L_AM szakértői vélemény."
+                "összevetése; nem hitelesített L_AM napló."
             ),
         }
     )

@@ -8,7 +8,7 @@
       size: A4;
       margin: 16mm 14mm 16mm 14mm;
       @bottom-left {
-        content: "{{ report_id }} · {{ extract_sha256_short }}";
+        content: "{{ report_id }}";
         font-size: 7.5pt;
         color: #666;
       }
@@ -30,24 +30,24 @@
       line-height: 1.4;
       counter-reset: para;
     }
-    h1 {
+    h1, .doc-title {
       font-size: 15pt;
       margin: 0 0 8pt 0;
-      color: #7f0000;
+      color: #000;
       font-weight: 900;
     }
     h2 {
       font-size: 12pt;
       margin: 14pt 0 6pt 0;
-      border-bottom: 3px solid #c62828;
+      border-bottom: 3px solid #000;
       padding-bottom: 3pt;
-      color: #b71c1c;
+      color: #000;
       font-weight: 900;
     }
     h3 {
       font-size: 11pt;
       margin: 10pt 0 4pt 0;
-      color: #b71c1c;
+      color: #000;
       font-weight: 800;
     }
     .meta { font-size: 8.5pt; color: #555; margin-bottom: 8pt; }
@@ -181,7 +181,14 @@
       margin: 0 0 4pt 0;
     }
     .page-break { page-break-before: always; }
-    .keep { page-break-inside: avoid; }
+    .keep {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    table.keep-table {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
 
     .disclaimer {
       margin-top: 10pt;
@@ -196,9 +203,9 @@
     .annex-title {
       font-size: 13pt;
       font-weight: 900;
-      color: #333;
+      color: #000;
       margin: 0 0 8pt 0;
-      border-bottom: 2px solid #333;
+      border-bottom: 2px solid #000;
       padding-bottom: 4pt;
     }
   </style>
@@ -212,24 +219,17 @@
     <div class="value">{{ period_display }}</div>
   </div>
 
-  <h1>Szomszéd hőszivattyú zaj — mérési összefoglaló</h1>
-  <div class="meta">
-    <span>Riport: {{ report_id }}</span>
-    <span>verzió {{ version }}</span>
-    <span>git {{ git_commit }}</span>
-    <span>készült: {{ created_at }}</span>
-  </div>
+  <h1 class="doc-title">Szomszéd hőszivattyú zaj — mérési összefoglaló</h1>
 
   <dl class="facts">
     <dt>Mit</dt><dd>Zajszint (A-súlyozott) és spektrális jelleg a szomszéd hőszivattyúhoz kapcsolódóan</dd>
     <dt>Hol</dt><dd>{{ site.name }}{% if site.description %} — {{ site.description }}{% endif %}</dd>
-    <dt>Mérőpont</dt><dd>{{ site.measurement_point }}</dd>
-    <dt>Mikor</dt><dd>{{ period_display }} (Europe/Budapest; intervallum félig nyitott)</dd>
+    <dt>Mikor</dt><dd>{{ period_display }}</dd>
     <dt>Mivel</dt><dd>{{ instrument.name }}{% if instrument.class %} · {{ instrument.class }}{% endif %} · metrika: {{ instrument.metric_id }}</dd>
     {% if analysis.temperature %}
     <dt>Kültér</dt><dd>
       {{ "%.1f"|format(analysis.temperature.t_min_c) }} … {{ "%.1f"|format(analysis.temperature.t_max_c) }} °C
-      (átlag {{ "%.1f"|format(analysis.temperature.t_mean_c) }} °C){% if analysis.temperature.source %} · {{ analysis.temperature.source }}{% endif %}
+      (átlag {{ "%.1f"|format(analysis.temperature.t_mean_c) }} °C)
     </dd>
     {% endif %}
   </dl>
@@ -295,7 +295,7 @@
   </ol>
 
   <h2>Állítás–bizonyíték</h2>
-  <div class="plain">Minden fő megállapításhoz: hol van az ábra, a táblázat, a melléklet és az adatforrás.</div>
+  <div class="plain">Minden fő megállapításhoz: hol van az ábra, a táblázat és a melléklet.</div>
   <table>
     <thead>
       <tr>
@@ -303,7 +303,6 @@
         <th>Állítás</th>
         <th>Ábra</th>
         <th>Tábla / melléklet</th>
-        <th>Adatforrás</th>
       </tr>
     </thead>
     <tbody>
@@ -313,7 +312,6 @@
         <td>{{ f.claim }}</td>
         <td>{{ f.figure }}</td>
         <td>{{ f.table }}{% if f.annex %}<br/><span style="font-size:8pt;color:#555;">{{ f.annex }}</span>{% endif %}</td>
-        <td style="font-size:8.5pt;">{{ f.source }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -324,7 +322,7 @@
   {# ========== FŐ RÉSZ ========== #}
   <div class="page-break"></div>
   <div class="section-label">Fő rész</div>
-  <h1>Részletes bemutatás</h1>
+  <h1 class="doc-title">Részletes bemutatás</h1>
   <p class="p">
     Az alábbi 5–6 ábra a lényeget mutatja. A napi bontás, a teljes eseménylista,
     az érzékenység, a módszer és a fogalmak a mellékletekben vannak.
@@ -355,7 +353,7 @@
     <thead>
       <tr>
         <th>Éjszaka</th>
-        <th class="num">Perc határ felett</th>
+        <th class="num">Határ felett</th>
         <th class="num">Max túllépés</th>
         <th class="num">Átlag túllépés (over)</th>
       </tr>
@@ -364,7 +362,7 @@
       {% for row in analysis.night_exceedance_rows %}
       <tr class="{{ 'over' if row.minutes_over > 0 else '' }}">
         <td><strong>{{ row.night_date }}</strong></td>
-        <td class="num {{ 'over-cell' if row.minutes_over > 0 else '' }}">{{ row.minutes_over }}</td>
+        <td class="num {{ 'over-cell' if row.minutes_over > 0 else '' }}">{{ row.minutes_over_hm }}</td>
         <td class="num {{ 'over-cell' if row.minutes_over > 0 else '' }}">
           {% if row.minutes_over > 0 %}+{{ "%.1f"|format(row.max_exceedance_db) }} dB{% else %}—{% endif %}
         </td>
@@ -388,20 +386,7 @@
   <img class="chart-tall" src="{{ analysis.heatmap_uri }}" alt="Üzemelési mintázat" />
   {% endif %}
 
-  {% if analysis.temperature %}
-  <h2>4. Külső hőmérséklet</h2>
-  <div class="plain">
-    Hidegebb időben a hőszivattyú tipikusan gyakrabban jár.
-    Mért tartomány: <strong>{{ "%.1f"|format(analysis.temperature.t_min_c) }} … {{ "%.1f"|format(analysis.temperature.t_max_c) }} °C</strong>
-    (átlag {{ "%.1f"|format(analysis.temperature.t_mean_c) }} °C).
-    Narancs sáv = detektált gépüzem.
-  </div>
-  {% if analysis.temperature_uri %}
-  <img class="chart" src="{{ analysis.temperature_uri }}" alt="Külső hőmérséklet" />
-  {% endif %}
-  {% endif %}
-
-  <h2>{% if analysis.temperature %}5{% else %}4{% endif %}. Mennyi ideig ment a gép?</h2>
+  <h2>4. Mennyi ideig ment a gép?</h2>
   <table>
     <thead>
       <tr>
@@ -416,8 +401,8 @@
     </thead>
     <tbody>
       <tr>
-        <td><strong>{{ "%.1f"|format(analysis.measure_hours) }} óra</strong></td>
-        <td class="num"><strong>{{ "%.1f"|format(analysis.on_hours) }} óra</strong></td>
+        <td><strong>{{ analysis.measure_hm }}</strong></td>
+        <td class="num"><strong>{{ analysis.on_hm }}</strong></td>
         <td class="num over-cell"><strong>{{ "%.1f"|format(analysis.on_ratio_pct) }}%</strong></td>
         <td class="num"><strong>{{ analysis.event_count }}</strong></td>
         {% if analysis.temperature %}
@@ -436,7 +421,7 @@
     </tbody>
   </table>
 
-  <h2>{% if analysis.temperature %}6{% else %}5{% endif %}. Miben más a gép hangja? (spektrum)</h2>
+  <h2>5. Miben más a gép hangja? (spektrum)</h2>
   <div class="plain">
     Nem a hangosságot (dB-határt) bizonyítja, hanem az „ujjlenyomatot”: a zaj a géphez köthető.
   </div>
@@ -447,12 +432,13 @@
   <img class="chart" src="{{ analysis.dominant_uri }}" alt="Domináns frekvencia" />
   {% endif %}
 
-  <h2>{% if analysis.temperature %}7{% else %}6{% endif %}. Határérték a rendelet szerint</h2>
+  <div class="keep">
+  <h2>6. Határérték a rendelet szerint</h2>
   <div class="plain">
     Nappal a legzajosabb folyamatos <strong>8 óra</strong>, éjjel a legzajosabb
     <strong>fél óra</strong> — ezt mutatják az alábbi sorok.
   </div>
-  <table>
+  <table class="keep-table">
     <thead>
       <tr>
         <th>Mit nézünk?</th>
@@ -481,26 +467,10 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% endif %}
 
-  <h2>{% if analysis.temperature %}8{% else %}7{% endif %}. Időrendi események</h2>
-  <div class="plain">Mérés kezdete, adatkiesések (≥ 60 s), detektált gépüzem; kalibrálás: ha naplózva van.</div>
-  <table>
-    <thead>
-      <tr><th>Idő (helyi)</th><th>Esemény</th><th>Részlet</th></tr>
-    </thead>
-    <tbody>
-      {% for row in timeline %}
-      <tr>
-        <td>{{ row.when }}</td>
-        <td><strong>{{ row.kind }}</strong></td>
-        <td style="font-size:9pt;">{{ row.detail }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-
-  <h2>{% if analysis.temperature %}9{% else %}8{% endif %}. Korlátok és lehetséges ellenvetések</h2>
+  <h2>7. Korlátok és lehetséges ellenvetések</h2>
   <table>
     <thead>
       <tr><th>Ellenvetés</th><th>Tényszerű válasz</th></tr>
@@ -518,13 +488,13 @@
   {# ========== MELLÉKLETEK ========== #}
   <div class="page-break"></div>
   <div class="annex-title">Melléklet A — Napi összesítők</div>
-  <p class="p">Napi energetikus LAeq és 1 perces csúcs; a Δ a nappali {{ day_limit|int }} dB határhoz képest.</p>
+  <p class="p">Napi energetikus LAeq és a leghangosabb perc (max. perces LAeq); a Δ a nappali {{ day_limit|int }} dB határhoz képest.</p>
   <table>
     <thead>
       <tr>
         <th>Dátum</th>
         <th class="num">Átlag</th>
-        <th class="num">Csúcs (1 perc)</th>
+        <th class="num">Max. perces LAeq</th>
         <th class="num">Δ nappali határhoz</th>
         <th></th>
       </tr>
@@ -549,12 +519,12 @@
         <th class="num">Mért átlag</th>
         <th class="num">Megengedett</th>
         <th class="num">Különbség</th>
-        <th class="num">Csúcs (1 perc)</th>
+        <th class="num">Max. perces LAeq</th>
         <th></th>
       </tr>
     </thead>
     <tbody>
-      {% for label, block in [("Egész időszak", overall), ("Nappal (06–22)", day), ("Éjjel (22–06)", night)] %}
+      {% for label, block in [("Nappal (06–22)", day), ("Éjjel (22–06)", night)] %}
       <tr class="{{ 'over' if block and block.over_limit else '' }}">
         <td><strong>{{ label }}</strong></td>
         {% if block %}
@@ -607,14 +577,14 @@
 
   <div class="page-break"></div>
   <div class="annex-title">Melléklet C — Ciklus- / eseménytábla</div>
-  <p class="p">Detektált gépüzemi szakaszok (offline acoustic_hysteresis {{ analysis.detector_version }}).</p>
+  <p class="p">Detektált gépüzemi szakaszok.</p>
   {% if events_all %}
   <table>
     <thead>
       <tr>
-        <th>Kezdet (UTC ISO)</th>
+        <th>Kezdet</th>
         <th>Vég</th>
-        <th class="num">Perc</th>
+        <th class="num">Időtartam</th>
         {% if analysis.temperature %}<th class="num">Külső °C</th>{% endif %}
       </tr>
     </thead>
@@ -623,7 +593,7 @@
       <tr>
         <td style="font-size:8.5pt;">{{ ev.started_at }}</td>
         <td style="font-size:8.5pt;">{{ ev.ended_at }}</td>
-        <td class="num"><strong>{{ ev.duration_min }}</strong></td>
+        <td class="num"><strong>{{ ev.duration_hm }}</strong></td>
         {% if analysis.temperature %}
         <td class="num">{% if ev.temp_c is not none %}{{ "%.1f"|format(ev.temp_c) }}{% else %}—{% endif %}</td>
         {% endif %}
@@ -647,42 +617,12 @@
       <tr><th>Határ nappal / éjjel</th><td>{{ day_limit|int }} / {{ night_limit|int }} dB (L_TH)</td></tr>
       <tr><th>Megítélési idő</th><td>nappal {{ assess_day }}, éjjel {{ assess_night }}</td></tr>
       <tr><th>Műszer</th><td>{{ instrument.name }} · {{ instrument.class }}</td></tr>
-      <tr><th>Kalibrálás</th><td>{{ instrument.calibration_status }}</td></tr>
-      <tr><th>Detektor</th><td>acoustic_hysteresis {{ analysis.detector_version or "—" }}</td></tr>
-      <tr><th>Kódverzió</th><td>noisereport {{ version }} · git {{ git_commit }}</td></tr>
     </tbody>
   </table>
   <p class="p" style="margin-top:8pt;">{{ instrument.note }}</p>
 
   <div class="page-break"></div>
-  <div class="annex-title">Melléklet E — Adatok sértetlensége</div>
-  <p class="p">
-    Az időszak adatai egyszeri <strong>pillanatképként</strong> (snapshot) lettek kivonva.
-    A kivonat SHA-256 hash-e azonosítja a fájlokat: ha bármely bájt változik, a hash más lesz.
-  </p>
-  <table>
-    <tbody>
-      <tr><th>Snapshot</th><td class="mono">{{ snapshot_name }}</td></tr>
-      <tr><th>Extract SHA-256</th><td class="mono">{{ extract_sha256 }}</td></tr>
-      <tr><th>Rövid kivonat</th><td class="mono">{{ extract_sha256_short }}</td></tr>
-      <tr><th>Időszak (UTC)</th><td class="mono">{{ manifest.start_utc }} → {{ manifest.end_utc }}</td></tr>
-      <tr><th>Riport készült (UTC)</th><td class="mono">{{ created_at }}</td></tr>
-      <tr><th>Git commit</th><td class="mono">{{ git_commit }}</td></tr>
-      <tr><th>Lefedettség (QC)</th><td>{{ qc.coverage_pct }}% · {{ qc.sound_sample_count }} minta · kiesés ≥60 s: {{ qc.gap_ge_60s }}</td></tr>
-    </tbody>
-  </table>
-  <div class="plain">
-    <strong>Ellenőrzés (közérthetően):</strong> ugyanarra az időszakra újra futtatott extract
-    ugyanazt a SHA-256-ot adja, ha az adatbázis tartalma nem változott. A riport láblécében
-    a rövid hash és a riportazonosító minden oldalon szerepel. Az RFC 3161 időbélyeg
-    és a független verify script a 13. lépés tárgya.
-  </div>
-  {% if qc.notes %}
-  <p style="font-size:9pt;color:#555;">QC megjegyzések: {{ qc.notes | join("; ") }}</p>
-  {% endif %}
-
-  <div class="page-break"></div>
-  <div class="annex-title">Melléklet F — Fogalomtár</div>
+  <div class="annex-title">Melléklet E — Fogalomtár</div>
   <table>
     <thead><tr><th>Fogalom</th><th>Jelentés</th></tr></thead>
     <tbody>

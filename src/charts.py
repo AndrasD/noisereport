@@ -19,8 +19,6 @@ RED_FILL = "#e53935"
 DARK = "#212121"
 WINDOW_COLOR = "#1565c0"
 ON_COLOR = "#ef6c00"
-
-
 def _with_gap_breaks(
     t_local: pd.Series,
     y: np.ndarray,
@@ -320,7 +318,19 @@ def minute_laeq_chart(
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M", tz=t_local.dt.tz))
         fig.autofmt_xdate(rotation=25, ha="right")
         ax.set_ylabel("dB", fontweight="bold")
-        ax.legend(loc="upper right", fontsize=7.5, framealpha=0.92)
+        # Outside the axes so the curve / overlays stay readable.
+        ax.legend(
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.34),
+            ncol=3,
+            fontsize=7.5,
+            frameon=True,
+            fancybox=False,
+            edgecolor="#9e9e9e",
+            framealpha=0.95,
+            columnspacing=1.2,
+            handlelength=1.8,
+        )
         ax.grid(True, alpha=0.3)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -338,7 +348,6 @@ def minute_laeq_chart(
                 color="white",
                 bbox=dict(boxstyle="round,pad=0.35", facecolor=RED, edgecolor="none"),
             )
-        # Silence unused if no overlays (lint-friendly use)
         _ = (win_drawn, on_drawn)
 
     ax.set_title(title, fontsize=11, fontweight="bold", color=DARK)
@@ -579,76 +588,3 @@ def outdoor_temperature_summary(
         if on_vals:
             out["t_on_mean_c"] = round(float(sum(on_vals) / len(on_vals)), 1)
     return out
-
-
-def outdoor_temperature_chart(
-    env: pd.DataFrame,
-    *,
-    out_path: Path,
-    events: pd.DataFrame | None = None,
-) -> Path | None:
-    """Outdoor temperature (°C) over time; optional machine-on bands."""
-    summary = outdoor_temperature_summary(env)
-    if summary is None:
-        return None
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    df = env.copy()
-    df["measured_at"] = pd.to_datetime(df["measured_at"], utc=True)
-    df["temperature_c"] = pd.to_numeric(df["temperature_c"], errors="coerce")
-    df = df.dropna(subset=["temperature_c"]).sort_values("measured_at")
-    t_local = df["measured_at"].dt.tz_convert("Europe/Budapest")
-    y = df["temperature_c"].astype(float).to_numpy()
-
-    fig, ax = plt.subplots(figsize=(10, 3.2), dpi=140)
-    x_min, x_max = t_local.iloc[0], t_local.iloc[-1]
-    on_drawn = _draw_machine_on_bands(
-        ax,
-        events,
-        x_min=x_min,
-        x_max=x_max,
-        data_times=t_local,
-        max_data_gap=pd.Timedelta(hours=2),
-    )
-    if on_drawn:
-        ax.axvspan(x_min, x_min, color=ON_COLOR, alpha=0.35, label="gép jár (detektált)")
-
-    ax.plot(t_local, y, color="#0277bd", linewidth=1.8, label="külső hőmérséklet")
-    ax.axhline(0.0, color="#455a64", linestyle=":", linewidth=1.2, label="0 °C")
-    ax.fill_between(
-        t_local,
-        y,
-        0,
-        where=(y < 0),
-        color="#0288d1",
-        alpha=0.25,
-        interpolate=True,
-        label="fagy (< 0 °C)",
-    )
-    ax.set_ylabel("°C", fontweight="bold")
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M", tz=t_local.dt.tz))
-    fig.autofmt_xdate(rotation=25, ha="right")
-    ax.grid(True, alpha=0.3)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.legend(loc="upper right", fontsize=7.5, framealpha=0.92)
-    src = f" · forrás: {summary['source']}" if summary.get("source") else ""
-    ax.set_title(
-        f"Külső hőmérséklet · {summary['t_min_c']:.1f} … {summary['t_max_c']:.1f} °C "
-        f"(átlag {summary['t_mean_c']:.1f} °C){src}",
-        fontsize=11,
-        fontweight="bold",
-        color=DARK,
-    )
-    ax.text(
-        0.01,
-        0.02,
-        "Hidegebb idő → a hőszivattyú tipikusan gyakrabban/tovább jár.",
-        transform=ax.transAxes,
-        fontsize=8,
-        color="#37474f",
-    )
-    fig.tight_layout()
-    fig.savefig(out_path, bbox_inches="tight")
-    plt.close(fig)
-    return out_path

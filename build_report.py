@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import src.macos_libs  # noqa: F401  — before WeasyPrint (Homebrew dylib path)
+
 import argparse
 from pathlib import Path
 

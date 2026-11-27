@@ -281,24 +281,22 @@ LIMITATIONS: list[dict[str, str]] = [
             "A PeakTech 8005 Class 2 jellegű hangszintmérő; ebben a riportszeletben "
             "nincs hitelesített kalibrációs napló. A számok kijelzős mintákból "
             "számított LAeq-k. Az érzékenységi tábla (±1…±3 dB) mutatja, a "
-            "következtetés mennyire stabil a bizonytalansággal szemben. "
-            "Hitelesített párhuzamos mérés a 14. lépés tárgya."
+            "következtetés mennyire stabil a bizonytalansággal szemben."
         ),
     },
     {
         "objection": "Következtetett üzemállapot (nem a gép naplója)",
         "answer": (
-            "Az üzem/nem üzem offline detektorral (acoustic_hysteresis) és "
-            "opcionálisan kézi megfigyelésekkel van dokumentálva. A paraméterek "
-            "verziózottak. Ez nem a gyártó üzemnaplója, hanem akusztikai észlelés."
+            "Az üzem/nem üzem hangmintázat alapján, detektorral és "
+            "opcionálisan kézi megfigyelésekkel van dokumentálva. "
+            "Ez nem a gyártó üzemnaplója, hanem akusztikai észlelés."
         ),
     },
     {
         "objection": "Mérőpont megválasztása",
         "answer": (
-            "A mérés az érintett (elszenvedő) fél oldalán készült. A pontos "
-            "helyszínrajz és szabványos indoklás a mérőpont-lapon (14. lépés) "
-            "lesz; a jelen riport a rögzített mérési lánc adatait értékeli."
+            "A mérés az érintett (elszenvedő) fél oldalán készült. "
+            "A jelen riport a rögzített mérési lánc adatait értékeli."
         ),
     },
     {
