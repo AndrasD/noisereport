@@ -29,6 +29,8 @@ Előtte (egyszer): `source .venv/bin/activate`. A WeasyPrint dylib pathot a kód
 
 ```bash
 # Extract (DB → Parquet snapshot)
+# Default tables: sound, fft_*, manual, environment (nem húz minute_stat/gps_fix)
+# Párhuzamos fetch (3 worker); rendezés kliensen; per-tábla query/write időlog.
 python extract.py --start 2026-11-23T08:00 --end 2026-11-26T16:00
 
 # QC a snapshoton

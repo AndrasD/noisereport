@@ -324,8 +324,8 @@
   <div class="section-label">Fő rész</div>
   <h1 class="doc-title">Részletes bemutatás</h1>
   <p class="p">
-    Az alábbi 5–6 ábra a lényeget mutatja. A napi bontás, a teljes eseménylista,
-    az érzékenység, a módszer és a fogalmak a mellékletekben vannak.
+    Az alábbi ábrák a lényeget mutatják. A napszakos összesítők, az érzékenység,
+    a módszer és a fogalmak a mellékletekben vannak.
   </p>
 
   <h2>1. Mikor megy a határ fölé?</h2>
@@ -487,32 +487,12 @@
 
   {# ========== MELLÉKLETEK ========== #}
   <div class="page-break"></div>
-  <div class="annex-title">Melléklet A — Napi összesítők</div>
-  <p class="p">Napi energetikus LAeq és a leghangosabb perc (max. perces LAeq); a Δ a nappali {{ day_limit|int }} dB határhoz képest.</p>
+  <div class="annex-title">Melléklet A — Nappal / éjjel összesítők</div>
+  <p class="p">
+    Energetikus LAeq napszakonként (06–22 / 22–06), a megfelelő határhoz viszonyítva —
+    nem naptári nap átlaga a nappali határhoz.
+  </p>
   <table>
-    <thead>
-      <tr>
-        <th>Dátum</th>
-        <th class="num">Átlag</th>
-        <th class="num">Max. perces LAeq</th>
-        <th class="num">Δ nappali határhoz</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in daily_rows %}
-      <tr class="{{ 'over' if row.over_limit else '' }}">
-        <td><strong>{{ row.date }}</strong></td>
-        <td class="num {{ 'over-cell' if row.over_limit else '' }}">{{ "%.1f"|format(row.laeq_db) }} dB</td>
-        <td class="num">{{ "%.1f"|format(row.lmax_db) }} dB</td>
-        <td class="num {{ 'over-cell' if row.over_limit else '' }}">{{ "%+.1f"|format(row.exceedance_db) }} dB</td>
-        <td>{% if row.over_limit %}<span class="tag-over">TÚLLÉPÉS</span>{% endif %}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-
-  <table style="margin-top:12pt;">
     <thead>
       <tr>
         <th>Időszak</th>
@@ -574,40 +554,10 @@
       {% endfor %}
     </tbody>
   </table>
-
-  <div class="page-break"></div>
-  <div class="annex-title">Melléklet C — Ciklus- / eseménytábla</div>
-  <p class="p">Detektált gépüzemi szakaszok.</p>
-  {% if events_all %}
-  <table>
-    <thead>
-      <tr>
-        <th>Kezdet</th>
-        <th>Vég</th>
-        <th class="num">Időtartam</th>
-        {% if analysis.temperature %}<th class="num">Külső °C</th>{% endif %}
-      </tr>
-    </thead>
-    <tbody>
-      {% for ev in events_all %}
-      <tr>
-        <td style="font-size:8.5pt;">{{ ev.started_at }}</td>
-        <td style="font-size:8.5pt;">{{ ev.ended_at }}</td>
-        <td class="num"><strong>{{ ev.duration_hm }}</strong></td>
-        {% if analysis.temperature %}
-        <td class="num">{% if ev.temp_c is not none %}{{ "%.1f"|format(ev.temp_c) }}{% else %}—{% endif %}</td>
-        {% endif %}
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p>Nincs lezárt detektált esemény ebben az időszakban.</p>
-  {% endif %}
   {% endif %}
 
   <div class="page-break"></div>
-  <div class="annex-title">Melléklet D — Módszer és paraméterek</div>
+  <div class="annex-title">Melléklet C — Módszer és paraméterek</div>
   <p class="p"><strong>Metrika:</strong></p>
   <p class="method">{{ metric_method }}</p>
   <table>
@@ -622,7 +572,7 @@
   <p class="p" style="margin-top:8pt;">{{ instrument.note }}</p>
 
   <div class="page-break"></div>
-  <div class="annex-title">Melléklet E — Fogalomtár</div>
+  <div class="annex-title">Melléklet D — Fogalomtár</div>
   <table>
     <thead><tr><th>Fogalom</th><th>Jelentés</th></tr></thead>
     <tbody>

@@ -326,32 +326,8 @@
   {% endif %}
   {% endif %}
 
-  <h2>3. Naponta</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Dátum</th>
-        <th class="num">Átlag</th>
-        <th class="num">Max. perces LAeq</th>
-        <th class="num">Δ a nappali határhoz</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in daily_rows %}
-      <tr class="{{ 'over' if row.over_limit else '' }}">
-        <td><strong>{{ row.date }}</strong></td>
-        <td class="num {{ 'over-cell' if row.over_limit else '' }}">{{ "%.1f"|format(row.laeq_db) }} dB</td>
-        <td class="num {{ 'over-cell' if row.over_limit else '' }}">{{ "%.1f"|format(row.lmax_db) }} dB</td>
-        <td class="num {{ 'over-cell' if row.over_limit else '' }}">{{ "%+.1f"|format(row.exceedance_db) }} dB</td>
-        <td>{% if row.over_limit %}<span class="tag-over">TÚLLÉPÉS</span>{% endif %}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-
   {% if analysis.enabled %}
-  <h2>4. Mennyi ideig ment a gép?</h2>
+  <h2>3. Mennyi ideig ment a gép?</h2>
   <table>
     <thead>
       <tr>
@@ -385,32 +361,8 @@
       </tr>
     </tbody>
   </table>
-  {% if analysis.events %}
-  <table>
-    <thead>
-      <tr>
-        <th>Kezdet</th>
-        <th>Vég</th>
-        <th class="num">Időtartam</th>
-        {% if analysis.temperature %}<th class="num">Külső °C</th>{% endif %}
-      </tr>
-    </thead>
-    <tbody>
-      {% for ev in analysis.events %}
-      <tr>
-        <td>{{ ev.started_at }}</td>
-        <td>{{ ev.ended_at }}</td>
-        <td class="num"><strong>{{ ev.duration_hm }}</strong></td>
-        {% if analysis.temperature %}
-        <td class="num">{% if ev.temp_c is not none %}{{ "%.1f"|format(ev.temp_c) }}{% else %}—{% endif %}</td>
-        {% endif %}
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
 
-  <h2>5. Éjjel is jár? (üzemelési mintázat)</h2>
+  <h2>4. Éjjel is jár? (üzemelési mintázat)</h2>
   <div class="plain">
     Az ábra <strong>nem hőmérséklet</strong>, hanem azt mutatja: <strong>melyik napon, melyik órában ment a gép</strong>
     (sor = dátum, oszlop = óra). Minél pirosabb a négyzet, annál nagyobb arányban járt abban az órában.
@@ -420,7 +372,7 @@
   <img class="chart" src="{{ analysis.heatmap_uri }}" alt="Üzemelési mintázat dátum × óra" />
   {% endif %}
 
-  <h2>6. Miben más a gép hangja? (spektrum)</h2>
+  <h2>5. Miben más a gép hangja? (spektrum)</h2>
   <div class="plain">
     Ez a rész <strong>nem a hangosságot</strong> (dB-határértéket) bizonyítja,
     hanem azt: a zajnak van <strong>„ujjlenyomata”</strong>, és az a szomszéd géphez köthető.
@@ -450,7 +402,7 @@
   </div>
 
   <div class="keep">
-  <h2>7. Határérték a rendelet szerint</h2>
+  <h2>6. Határérték a rendelet szerint</h2>
   <div class="plain">
     A rendelet <strong>nem az egész nap átlagát</strong> kéri, hanem:
     <strong>nappal a legzajosabb folyamatos 8 órát</strong>,

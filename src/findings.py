@@ -80,7 +80,7 @@ def build_findings(
                 "detail": " ".join(alert.get("bits") or []),
                 "figure": "Fő rész: nappali/éjjeli 1 perces ábrák",
                 "table": "Összefoglaló: megengedett vs mért",
-                "annex": "Melléklet A — napi összesítők",
+                "annex": "Melléklet A — nappal / éjjel összesítők",
                 "source": "sound_sample → percenkénti LAeq",
             }
         )
@@ -122,7 +122,7 @@ def build_findings(
                 "detail": night_txt,
                 "figure": "Fő rész: éjjeli 1 perces ábra; üzemelési mintázat",
                 "table": "Összefoglaló: éjjel sor",
-                "annex": "Melléklet A — napi bontás",
+                "annex": "Melléklet A — nappal / éjjel",
                 "source": "sound_sample, Europe/Budapest 22–06",
             }
         )
@@ -143,8 +143,8 @@ def build_findings(
                     "nem a gép saját naplójából."
                 ),
                 "figure": "Fő rész: üzemelési mintázat (dátum × óra)",
-                "table": "Melléklet C — ciklus-/eseménytábla",
-                "annex": "Melléklet C",
+                "table": "Fő rész — üzemösszefoglaló",
+                "annex": "—",
                 "source": "offline detektor acoustic_hysteresis + sound/fft",
             }
         )
@@ -163,7 +163,7 @@ def build_findings(
                 ),
                 "figure": "Fő rész: spektrum üzem vs nem üzem; domináns Hz",
                 "table": "—",
-                "annex": "Melléklet D — módszer / detektorparaméterek",
+                "annex": "Melléklet C — módszer / detektorparaméterek",
                 "source": "fft_band, fft_window + detektált események",
             }
         )

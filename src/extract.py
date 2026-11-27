@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,12 +16,16 @@ import yaml
 from sqlalchemy import text
 from sqlalchemy.engine import Connection, Engine
 
-from src.db import connect, make_engine
+from src.db import make_engine
 from src.timeutil import to_utc_interval
 
 _ROOT = Path(__file__).resolve().parents[1]
 
+# Max concurrent table fetches (each uses its own DB connection).
+_EXTRACT_WORKERS = 3
+
 # Deterministic column order per extract table (SELECT only).
+# Sort happens on the client after fetch (no server ORDER BY) for reproducible Parquet.
 TABLE_SPECS: dict[str, dict[str, Any]] = {
     "sound_sample": {
         "schema": "noise_monitor",
@@ -29,8 +35,8 @@ TABLE_SPECS: dict[str, dict[str, Any]] = {
                    quality_flags, decoder_version, device_time, received_at
             FROM noise_monitor.sound_sample
             WHERE measured_at >= :start AND measured_at < :end
-            ORDER BY measured_at, sample_id
         """,
+        "sort_by": ["measured_at", "sample_id"],
         "time_filter": "measured_at",
     },
     "fft_band": {
@@ -42,8 +48,8 @@ TABLE_SPECS: dict[str, dict[str, Any]] = {
                    quality_flags
             FROM noise_monitor.fft_band
             WHERE measured_at >= :start AND measured_at < :end
-            ORDER BY measured_at, band_id
         """,
+        "sort_by": ["measured_at", "band_id"],
         "time_filter": "measured_at",
     },
     "fft_window": {
@@ -55,8 +61,8 @@ TABLE_SPECS: dict[str, dict[str, Any]] = {
                    device_time, received_at
             FROM noise_monitor.fft_window
             WHERE measured_at >= :start AND measured_at < :end
-            ORDER BY measured_at, window_id
         """,
+        "sort_by": ["measured_at", "window_id"],
         "time_filter": "measured_at",
     },
     "manual_observations": {
@@ -66,8 +72,8 @@ TABLE_SPECS: dict[str, dict[str, Any]] = {
                    note, session_id, created_at
             FROM noise_monitor.manual_observations
             WHERE observed_at >= :start AND observed_at < :end
-            ORDER BY observed_at, observation_id
         """,
+        "sort_by": ["observed_at", "observation_id"],
         "time_filter": "observed_at",
     },
     "minute_stat": {
@@ -78,8 +84,8 @@ TABLE_SPECS: dict[str, dict[str, Any]] = {
                    coverage_ratio, sample_count, quality_summary
             FROM noise_report.minute_stat
             WHERE measured_at >= :start AND measured_at < :end
-            ORDER BY measured_at, minute_stat_id
         """,
+        "sort_by": ["measured_at", "minute_stat_id"],
         "time_filter": "measured_at",
     },
     "gps_fix": {
@@ -93,8 +99,8 @@ TABLE_SPECS: dict[str, dict[str, Any]] = {
             FROM noise_monitor.gps_fix
             WHERE valid_from < :end
               AND (valid_to IS NULL OR valid_to > :start)
-            ORDER BY measured_at, fix_id
         """,
+        "sort_by": ["measured_at", "fix_id"],
         "time_filter": "interval_overlap",
     },
     "environment_sample": {
@@ -106,8 +112,8 @@ TABLE_SPECS: dict[str, dict[str, Any]] = {
             FROM noise_monitor.environment_sample
             WHERE valid_from < :end
               AND (valid_to IS NULL OR valid_to > :start)
-            ORDER BY measured_at, sample_id
         """,
+        "sort_by": ["measured_at", "sample_id"],
         "time_filter": "interval_overlap",
     },
 }
@@ -156,11 +162,61 @@ def fetch_table(
     table: str,
     start_utc: datetime,
     end_utc: datetime,
-) -> tuple[pd.DataFrame, str]:
+) -> tuple[pd.DataFrame, str, float]:
+    """Fetch one table; returns (df, normalized_sql, query_seconds)."""
     spec = TABLE_SPECS[table]
     sql = text(spec["sql"])
+    t0 = time.perf_counter()
     df = pd.read_sql(sql, conn, params={"start": start_utc, "end": end_utc})
-    return _normalize_df(df), " ".join(spec["sql"].split())
+    query_s = time.perf_counter() - t0
+    df = _normalize_df(df)
+    sort_by = [c for c in spec.get("sort_by") or [] if c in df.columns]
+    if sort_by and not df.empty:
+        df = df.sort_values(sort_by, kind="mergesort").reset_index(drop=True)
+    return df, " ".join(spec["sql"].split()), query_s
+
+
+def _extract_one_table(
+    *,
+    engine: Engine,
+    table: str,
+    start_utc: datetime,
+    end_utc: datetime,
+    snap: Path,
+    index: int,
+    total: int,
+) -> tuple[str, dict[str, Any], int]:
+    print(
+        f"[extract] ({index}/{total}) lekérdezés: {table} …",
+        flush=True,
+    )
+    with engine.connect() as conn:
+        df, sql_norm, query_s = fetch_table(conn, table, start_utc, end_utc)
+    path = snap / f"{table}.parquet"
+    print(
+        f"[extract] ({index}/{total}) írás: {table} ({len(df)} sor) …",
+        flush=True,
+    )
+    t0 = time.perf_counter()
+    df.to_parquet(path, index=False, engine="pyarrow", compression="zstd")
+    write_s = time.perf_counter() - t0
+    digest = sha256_file(path)
+    rows = int(len(df))
+    print(
+        f"[extract] ({index}/{total}) kész: {table}  "
+        f"query={query_s:.1f}s write={write_s:.1f}s rows={rows}  "
+        f"sha256={digest[:12]}…",
+        flush=True,
+    )
+    meta = {
+        "path": path.name,
+        "rows": rows,
+        "sha256": digest,
+        "sql": sql_norm,
+        "query_seconds": round(query_s, 3),
+        "write_seconds": round(write_s, 3),
+    }
+    return table, meta, rows
 
 
 def run_extract(
@@ -171,6 +227,7 @@ def run_extract(
     snapshots_dir: Path | None = None,
     tables: list[str] | None = None,
     config: dict[str, Any] | None = None,
+    max_workers: int = _EXTRACT_WORKERS,
 ) -> ExtractResult:
     cfg = config or load_config()
     tz_name = cfg.get("timezone", "Europe/Budapest")
@@ -188,42 +245,37 @@ def run_extract(
     files: dict[str, Any] = {}
     row_counts: dict[str, int] = {}
     eng = engine or make_engine()
+    workers = max(1, min(max_workers, len(table_list)))
 
     print(
         f"[extract] {start_local} → {end_local}  "
         f"({start_utc.isoformat()} → {end_utc.isoformat()} UTC)",
         flush=True,
     )
-    print(f"[extract] snapshot: {snap}", flush=True)
+    print(
+        f"[extract] snapshot: {snap}  tables={len(table_list)} workers={workers}",
+        flush=True,
+    )
 
-    with connect(eng) as conn:
-        for i, table in enumerate(table_list, start=1):
-            print(
-                f"[extract] ({i}/{len(table_list)}) lekérdezés: {table} …",
-                flush=True,
-            )
-            df, sql_norm = fetch_table(conn, table, start_utc, end_utc)
-            path = snap / f"{table}.parquet"
-            print(
-                f"[extract] ({i}/{len(table_list)}) írás: {table} "
-                f"({len(df)} sor) …",
-                flush=True,
-            )
-            # Fixed engine options for reproducibility
-            df.to_parquet(path, index=False, engine="pyarrow", compression="zstd")
-            digest = sha256_file(path)
-            row_counts[table] = int(len(df))
-            files[table] = {
-                "path": path.name,
-                "rows": row_counts[table],
-                "sha256": digest,
-                "sql": sql_norm,
-            }
-            print(
-                f"[extract] ({i}/{len(table_list)}) kész: {table}  "
-                f"sha256={digest[:12]}…",
-                flush=True,
-            )
+    t_all = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(
+                _extract_one_table,
+                engine=eng,
+                table=table,
+                start_utc=start_utc,
+                end_utc=end_utc,
+                snap=snap,
+                index=i,
+                total=len(table_list),
+            ): table
+            for i, table in enumerate(table_list, start=1)
+        }
+        for fut in as_completed(futures):
+            table, meta, rows = fut.result()
+            files[table] = meta
+            row_counts[table] = rows
 
     # Aggregate extract hash: sorted table digests
     agg = hashlib.sha256()
@@ -233,6 +285,8 @@ def run_extract(
         agg.update(files[table]["sha256"].encode())
         agg.update(b"\n")
     extract_hash = agg.hexdigest()
+    total_s = time.perf_counter() - t_all
+    print(f"[extract] összes: {total_s:.1f}s  sha256={extract_hash[:12]}…", flush=True)
 
     manifest = {
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -245,6 +299,8 @@ def run_extract(
         "tables": files,
         "extract_sha256": extract_hash,
         "row_counts": row_counts,
+        "extract_seconds": round(total_s, 3),
+        "extract_workers": workers,
     }
     manifest_path = snap / "manifest.json"
     manifest_path.write_text(

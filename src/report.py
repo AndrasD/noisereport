@@ -261,31 +261,6 @@ def _compute_report_bundle(
     day = period_stats(sound, day_only=True)
     night = period_stats(sound, day_only=False)
 
-    daily_rows = []
-    if not sound.empty:
-        s2 = sound.copy()
-        s2["measured_at"] = pd.to_datetime(s2["measured_at"], utc=True)
-        s2["local_date"] = s2["measured_at"].dt.tz_convert("Europe/Budapest").dt.date
-        for d, grp in s2.groupby("local_date"):
-            st = period_stats(grp)
-            if st is None:
-                continue
-            peak = sustained_peak_db(grp)
-            over = st.laeq_db > day_limit
-            daily_rows.append(
-                {
-                    "date": str(d),
-                    "laeq_db": round(st.laeq_db, 1),
-                    "l10_db": round(st.l10_db, 1),
-                    "l50_db": round(st.l50_db, 1),
-                    "l90_db": round(st.l90_db, 1),
-                    "lmax_db": round(peak, 1) if peak is not None else round(st.laeq_db, 1),
-                    "sample_count": st.sample_count,
-                    "over_limit": over,
-                    "exceedance_db": round(st.laeq_db - day_limit, 1),
-                }
-            )
-
     # Whole-period LAeq has no single decree limit (day 50 / night 40 differ) —
     # keep as info only, never mark TÚLLÉPÉS against the daytime limit.
     overall_fmt = _fmt_stats(
@@ -586,7 +561,6 @@ def _compute_report_bundle(
         "overall": overall_fmt,
         "day": day_fmt,
         "night": night_fmt,
-        "daily_rows": daily_rows,
         "chart_day_uri": chart_day_path.resolve().as_uri(),
         "chart_night_uri": chart_night_path.resolve().as_uri(),
         "analysis": analysis,
@@ -705,7 +679,6 @@ def build_full_report(
         night_limit=float(ctx["night_limit"]),
     )
 
-    show_all_days = stype == "weekly" or len(ctx["daily_rows"]) <= 10
     events_main_cap = 12 if stype == "weekly" else 8
 
     full_ctx = dict(ctx)
@@ -727,7 +700,6 @@ def build_full_report(
                 "level_db_min": qc.level_db_min,
                 "level_db_max": qc.level_db_max,
             },
-            "show_all_days": show_all_days,
             "events_main": (ctx["analysis"].get("events") or [])[:events_main_cap],
             "events_all": ctx["analysis"].get("events") or [],
             "scope_text": (

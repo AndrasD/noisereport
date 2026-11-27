@@ -62,11 +62,11 @@ paths:
   templates_dir: templates
 
 extract:
+  # Default PDF pipeline. Optional QC-only: minute_stat, gps_fix
+  # (pass tables= to run_extract).
   tables:
     - sound_sample
     - fft_band
     - fft_window
     - manual_observations
-    - minute_stat
-    - gps_fix
     - environment_sample
