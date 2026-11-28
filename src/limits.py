@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 import pandas as pd
 
-from src.metrics import energetic_laeq, is_day_local
+from src.metrics import BUDAPEST, energetic_laeq, is_day_local, night_date_local
+
+# PeakTech display stream ≈ 20 Hz; plaintiff's diary uses ≥50% coverage.
+DEFAULT_EXPECTED_HZ = 20.0
+DEFAULT_MIN_COVERAGE = 0.5
 
 
 @dataclass
@@ -31,6 +36,28 @@ def _prepare(sound: pd.DataFrame) -> pd.DataFrame:
     return df.dropna(subset=["level_db"]).sort_values("measured_at")
 
 
+def _window_fully_in_period(
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    kind: str,
+) -> bool:
+    """True if the half-open [start, end) lies entirely in one day or night period."""
+    start_dt = start.to_pydatetime()
+    last_dt = (end - pd.Timedelta(seconds=1)).to_pydatetime()
+    if kind == "day":
+        return (
+            is_day_local(start_dt)
+            and is_day_local(last_dt)
+            and start_dt.astimezone(BUDAPEST).date()
+            == last_dt.astimezone(BUDAPEST).date()
+        )
+    return (
+        not is_day_local(start_dt)
+        and not is_day_local(last_dt)
+        and night_date_local(start_dt) == night_date_local(last_dt)
+    )
+
+
 def rolling_laeq_windows(
     sound: pd.DataFrame,
     *,
@@ -39,13 +66,15 @@ def rolling_laeq_windows(
     day_limit: float = 50.0,
     night_limit: float = 40.0,
     period: str | None = None,
+    expected_hz: float = DEFAULT_EXPECTED_HZ,
+    min_coverage: float = DEFAULT_MIN_COVERAGE,
 ) -> list[WindowResult]:
     """Rolling LAeq windows.
 
     ``period``:
-      - ``day``: only windows whose midpoint is in 06–22 local
-      - ``night``: only windows whose midpoint is in 22–06 local
-      - ``None``: all windows
+      - ``day``: window entirely within one local calendar day 06–22
+      - ``night``: window entirely within one night (22–06, same night_date)
+      - ``None``: all windows (limit from midpoint)
     """
     df = _prepare(sound)
     if df.empty:
@@ -53,25 +82,25 @@ def rolling_laeq_windows(
     step = step or window
     t0 = df["measured_at"].iloc[0]
     t1 = df["measured_at"].iloc[-1]
+    min_samples = max(10, int(window.total_seconds() * expected_hz * min_coverage))
     results: list[WindowResult] = []
     start = t0
     while start + window <= t1 + pd.Timedelta(seconds=1):
         end = start + window
         mid = start + (window / 2)
-        mid_day = is_day_local(mid.to_pydatetime())
-        if period == "day" and not mid_day:
-            start = start + step
-            continue
-        if period == "night" and mid_day:
+        if period in ("day", "night") and not _window_fully_in_period(
+            start, end, period
+        ):
             start = start + step
             continue
         chunk = df[(df["measured_at"] >= start) & (df["measured_at"] < end)]
-        # Require reasonable coverage: at least 20% of expected samples (~20 Hz)
-        expected = window.total_seconds() * 20 * 0.05  # loose floor
-        if len(chunk) >= max(10, int(expected)):
+        if len(chunk) >= min_samples:
             laeq = energetic_laeq(chunk["level_db"].astype(float).tolist())
-            limit = day_limit if (period == "day" or (period is None and mid_day)) else night_limit
-            if period is None:
+            if period == "day":
+                limit = day_limit
+            elif period == "night":
+                limit = night_limit
+            else:
                 limit = _limit_for_ts(mid, day_limit, night_limit)
             results.append(
                 WindowResult(
@@ -100,6 +129,8 @@ def evaluate_limits(
     *,
     day_limit: float = 50.0,
     night_limit: float = 40.0,
+    expected_hz: float = DEFAULT_EXPECTED_HZ,
+    min_coverage: float = DEFAULT_MIN_COVERAGE,
 ) -> dict:
     # Regulatory assessment windows (27/2008. §2 (2))
     day_8h = rolling_laeq_windows(
@@ -109,6 +140,8 @@ def evaluate_limits(
         day_limit=day_limit,
         night_limit=night_limit,
         period="day",
+        expected_hz=expected_hz,
+        min_coverage=min_coverage,
     )
     night_30m = rolling_laeq_windows(
         sound,
@@ -117,6 +150,8 @@ def evaluate_limits(
         day_limit=day_limit,
         night_limit=night_limit,
         period="night",
+        expected_hz=expected_hz,
+        min_coverage=min_coverage,
     )
     worst_day = _worst(day_8h)
     worst_night = _worst(night_30m)

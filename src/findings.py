@@ -60,8 +60,9 @@ def build_findings(
             {
                 "id": "F1",
                 "claim": (
-                    "A rendelet szerinti megítélési időben a mért zaj "
-                    "meghaladja a megengedett szintet."
+                    "A rendelet szerinti megítélési ablakokban a számított LAeq "
+                    "a hivatkozott L_TH irányérték felett van "
+                    "(mért összzaj, nem L_AM)."
                 ),
                 "detail": "; ".join(bits),
                 "figure": "Fő rész: nappali/éjjeli 1 perces ábrák; § határérték",
@@ -75,7 +76,8 @@ def build_findings(
             {
                 "id": "F1",
                 "claim": (
-                    "A mért időszakban a zaj többször a megengedett szint felett volt."
+                    "A mért időszakban a számított LAeq többször a hivatkozott "
+                    "L_TH irányérték felett volt."
                 ),
                 "detail": " ".join(alert.get("bits") or []),
                 "figure": "Fő rész: nappali/éjjeli 1 perces ábrák",
@@ -115,9 +117,9 @@ def build_findings(
             {
                 "id": "F2",
                 "claim": (
-                    "Éjjel (22–06) is jelentős a mért zajterhelés."
+                    "Éjjel (22–06) is a hivatkozott L_TH felett van a számított LAeq."
                     if night.get("over_limit")
-                    else "Az éjjeli átlag a megengedett szinthez képest értékelhető."
+                    else "Az éjjeli számított LAeq a hivatkozott L_TH-hoz képest értékelhető."
                 ),
                 "detail": night_txt,
                 "figure": "Fő rész: éjjeli 1 perces ábra; üzemelési mintázat",
@@ -155,11 +157,12 @@ def build_findings(
             {
                 "id": "F4",
                 "claim": (
-                    "Üzem közben a hangkép eltér a kikapcsolt állapottól "
-                    "(spektrum / domináns frekvencia) — a zaj a géphez köthető."
+                    "Az üzemnek jelölt szakaszokban észlelt hangkép eltér "
+                    "a többi időszaktól (spektrum / domináns frekvencia)."
                 ),
                 "detail": (
-                    "Ez a jellegazonosságot mutatja, nem önmagában a dB-határértéket."
+                    "Összehasonlító megfigyelés; önmagában nem bizonyít okságot "
+                    "és nem helyettesíti a dB–L_TH összevetést."
                 ),
                 "figure": "Fő rész: spektrum üzem vs nem üzem; domináns Hz",
                 "table": "—",
@@ -253,8 +256,8 @@ GLOSSARY: list[dict[str, str]] = [
     {
         "term": "1/3 oktávsáv",
         "def": (
-            "A hang spektrumának frekvenciasávokra bontása; a gép „ujjlenyomatának” "
-            "összehasonlítására szolgál üzem vs. nem üzem között."
+            "A hang spektrumának frekvenciasávokra bontása; üzemnek jelölt vs. "
+            "egyéb időszakok összehasonlítására."
         ),
     },
     {
@@ -278,10 +281,10 @@ LIMITATIONS: list[dict[str, str]] = [
     {
         "objection": "Hitelesítetlen / nem akkreditált műszer",
         "answer": (
-            "A PeakTech 8005 Class 2 jellegű hangszintmérő; ebben a riportszeletben "
-            "nincs hitelesített kalibrációs napló. A számok kijelzős mintákból "
-            "számított LAeq-k. Az érzékenységi tábla (±1…±3 dB) mutatja, a "
-            "következtetés mennyire stabil a bizonytalansággal szemben."
+            "A PeakTech 8005 Class 2 besorolása gyártói állítás, nem ellenőrzött; "
+            "ebben a naplóban nincs hitelesített kalibrációs napló. A számok "
+            "kijelzős mintákból számított LAeq-k. Az érzékenységi tábla (±1…±3 dB) "
+            "az összevetés érzékenységét mutatja."
         ),
     },
     {
@@ -296,16 +299,15 @@ LIMITATIONS: list[dict[str, str]] = [
         "objection": "Mérőpont megválasztása",
         "answer": (
             "A mérés az érintett (elszenvedő) fél oldalán készült. "
-            "A jelen riport a rögzített mérési lánc adatait értékeli."
+            "Ez a napló a rögzített mérési lánc adatait foglalja össze."
         ),
     },
     {
         "objection": "Háttérzaj / más források",
         "answer": (
             "A spektrum és a domináns frekvencia üzem vs. nem üzem összevetése "
-            "segít elkülöníteni a gépi jellegű zajt. A L90 és a kikapcsolt "
-            "szakaszok a háttér közelítésére szolgálnak; teljes háttérleválasztás "
-            "csak kontrollált körülmények között lehetséges."
+            "összehasonlító megfigyelés; önmagában nem bizonyít okságot. "
+            "A L90 és a kikapcsolt szakaszok a háttér közelítésére szolgálnak."
         ),
     },
 ]

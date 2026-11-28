@@ -375,7 +375,8 @@
   <h2>5. Miben más a gép hangja? (spektrum)</h2>
   <div class="plain">
     Ez a rész <strong>nem a hangosságot</strong> (dB-határértéket) bizonyítja,
-    hanem azt: a zajnak van <strong>„ujjlenyomata”</strong>, és az a szomszéd géphez köthető.
+    hanem azt: az üzemnek jelölt szakaszokban a hangkép <strong>eltér</strong> a többi
+    időszaktól (összehasonlítás, nem oksági bizonyíték önmagában).
   </div>
   {% if analysis.spectrum_uri %}
   <img class="chart" src="{{ analysis.spectrum_uri }}" alt="Spektrum üzem vs nem üzem" />
@@ -395,9 +396,9 @@
         tehát a hangnak van gépre jellemző mintázata.</li>
     </ul>
     <p style="margin:8pt 0 0 0;">
-      <strong>Egy mondatban:</strong> amikor a gép megy, más (és hangosabb) a hangkép;
-      kikapcsolva ez a jelleg eltűnik / gyengül — a zavaró zaj a géphez köthető.
-      A jogi határérték-összevetés a következő pontban van.
+      <strong>Egy mondatban:</strong> amikor a detektor szerint a gép jár, más
+      (gyakran hangosabb) a hangkép; kikapcsoltnak jelölt szakaszokon ez gyengül.
+      A dB–L_TH összevetés a következő pontban van.
     </p>
   </div>
 
@@ -474,7 +475,7 @@
   </table>
   <p style="font-size:9.5pt;color:#444;">
     Olvasási példa: ha a mérés <strong>3 dB-lel túl magas</strong> lenne, az éjjeli félórás
-    ablakok közül még mindig a piros arányú rész a megengedett szint felett maradna.
+    ablakok közül még mindig a piros arányú rész a hivatkozott L_TH felett maradna.
   </p>
   {% endif %}
 

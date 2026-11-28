@@ -9,11 +9,11 @@ site:
   description: "Lakóterület — kisvárosias / kertvárosias beépítés"
   measurement_point: >-
     Mérőpont az érintett (elszenvedő) fél oldalán;
-    a pontos helyszínrajz a 14. lépés mérőpont-lapján lesz.
+    a pontos helyszínrajz külön mérőpont-lapon / mellékletben.
 
 instrument:
   name: "PeakTech 8005"
-  class: "Class 2 (állítás; userguide-ból ellenőrizendő)"
+  class: "Class 2 (gyártói állítás, nem ellenőrzött)"
   metric_id: "peaktech_display_energetic_v1"
   calibration_status: "nincs hitelesített kalibrációs napló ebben a riportszeletben"
   note: >-

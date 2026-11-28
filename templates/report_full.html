@@ -275,7 +275,7 @@
         {% endif %}
         <div class="sub">
           {% if alert.over %}
-          <strong>A jobb oldali számok nagyobbak a megengedettnél.</strong>
+          <strong>A jobb oldali számok a hivatkozott L_TH felett vannak.</strong>
           {% else %}
           Ebben a szeletben az átlag a határ alatt.
           {% endif %}
@@ -345,7 +345,7 @@
   <h2>2. Éjszakai túllépés — ismétlődés</h2>
   <div class="plain">
     Minden oszlop egy éjszaka. Magasság = hány perc volt {{ night_limit|int }} dB felett;
-    felirat = legnagyobb túllépés (dB) azon az éjjelen. Ez a rendszeres zavarás érve.
+    felirat = legnagyobb túllépés (dB) azon az éjjelen.
   </div>
   <img class="chart" src="{{ analysis.night_exceedance_uri }}" alt="Éjszakai túllépés eloszlás" />
   {% if analysis.night_exceedance_rows %}
@@ -423,7 +423,8 @@
 
   <h2>5. Miben más a gép hangja? (spektrum)</h2>
   <div class="plain">
-    Nem a hangosságot (dB-határt) bizonyítja, hanem az „ujjlenyomatot”: a zaj a géphez köthető.
+    Összehasonlítás: az üzemnek jelölt szakaszokban a hangkép eltér-e a többi időszaktól
+    (nem oksági bizonyíték önmagában).
   </div>
   {% if analysis.spectrum_uri %}
   <img class="chart" src="{{ analysis.spectrum_uri }}" alt="Spektrum üzem vs nem üzem" />
@@ -528,7 +529,7 @@
   <div class="annex-title">Melléklet B — Érzékenység (megítélési ablakok)</div>
   <div class="plain">
     Ha a mérés 1–3 dB-lel túl magas lenne (a gép valójában halkabb), akkor is
-    túllépi-e a határértéket a rendeleti 8 órás / 30 perces ablakokban?
+    a hivatkozott L_TH felett maradna-e a rendeleti 8 órás / 30 perces ablakokban?
   </div>
   <table>
     <thead>

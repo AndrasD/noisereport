@@ -503,14 +503,22 @@ def _compute_report_bundle(
 
     alert = {
         "over": alert_over,
-        "title": "A mért zaj meghaladja a megengedett szintet",
-        "plain_verdict": (
-            "A mért zaj többször is hangosabb, mint amit a rendelet "
-            "kisvárosias/kertvárosias lakóterületre nappal/éjjel megenged. "
-            "A piros kiemelések ezt mutatják."
+        "title": (
+            "A számított LAeq a hivatkozott L_TH irányérték felett van"
             if alert_over
-            else "Ebben az időszakban a számított átlagok a beállított "
-            "határértékek alatt maradtak."
+            else "A számított LAeq a hivatkozott L_TH irányérték alatt maradt"
+        ),
+        "plain_verdict": (
+            "A rendeleti megítélési ablakokban (nappal legzajosabb 8 óra, "
+            "éjjel legzajosabb 30 perc) a számított energetikus LAeq "
+            f"magasabb a hivatkozott L_TH-nál "
+            f"(nappal {day_limit:.0f} / éjjel {night_limit:.0f} dB). "
+            "Ez mért összzaj, nem hitelesített L_AM megítélési szint. "
+            "A piros kiemelések ezt az összevetést mutatják."
+            if alert_over
+            else "Ebben az időszakban a számított LAeq a hivatkozott "
+            f"L_TH irányértékek alatt maradt "
+            f"(nappal {day_limit:.0f} / éjjel {night_limit:.0f} dB)."
         ),
         "max_exceedance_db": None if max_exceed is None else round(max_exceed, 1),
         "max_exceedance_basis": (
@@ -529,13 +537,13 @@ def _compute_report_bundle(
     }
 
     disclaimer = (
-        "Ez a dokumentum a zajjal érintett (elszenvedő) fél mérési "
-        "összefoglalója ügyvédi áttekintéshez. Nem akkreditált laboratóriumi "
-        "jegyzőkönyv. A számok PeakTech kijelzős mintákból számított "
-        f"energetikus LAeq értékek. A {day_limit:.0f}/{night_limit:.0f} dB "
-        f"a {legal_source} 1. melléklet szerinti L_TH irányérték "
-        f"({protected_area}). A rendelet hivatalosan L_AM megítélési szintet "
-        "ír elő; a piros kiemelés a mért LAeq és az L_TH egyszerű összevetése."
+        "Felperesi mérési napló / tájékoztató az ügyvédnek: a zajjal érintett "
+        "(elszenvedő) fél saját mérései. Nem szakértői vélemény, nem akkreditált "
+        "laboratóriumi jegyzőkönyv, nem bírósági bizonyíték-formátum. "
+        "A számok PeakTech kijelzős mintákból számított energetikus LAeq értékek. "
+        f"A {day_limit:.0f}/{night_limit:.0f} dB a {legal_source} 1. melléklet "
+        f"szerinti L_TH irányérték ({protected_area}). A rendelet L_AM megítélési "
+        "szintet ír elő; a piros kiemelés a mért LAeq és az L_TH egyszerű összevetése."
     )
 
     ctx = {
