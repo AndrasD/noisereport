@@ -34,6 +34,8 @@ class QcReport:
     level_db_max: float | None
     impossible_level_count: int
     gaps: list[Gap]
+    gap_count_total: int
+    gap_seconds_total: float
     gps_fix_rows: int
     gps_with_fix: int
     notes: list[str]
@@ -78,6 +80,8 @@ def run_qc(snapshot_dir: Path, *, config: dict[str, Any] | None = None) -> QcRep
             level_db_max=None,
             impossible_level_count=0,
             gaps=[],
+            gap_count_total=0,
+            gap_seconds_total=0.0,
             gps_fix_rows=0,
             gps_with_fix=0,
             notes=["no sound_sample rows"],
@@ -117,6 +121,7 @@ def run_qc(snapshot_dir: Path, *, config: dict[str, Any] | None = None) -> QcRep
     if dup:
         notes.append(f"{dup} duplicate measured_at values")
 
+    gap_seconds_total = float(sum(g.duration_s for g in gaps))
     return QcReport(
         snapshot_dir=str(snap),
         expected_samples_per_minute=expected_per_min,
@@ -128,7 +133,9 @@ def run_qc(snapshot_dir: Path, *, config: dict[str, Any] | None = None) -> QcRep
         level_db_min=float(levels.min()) if len(levels) else None,
         level_db_max=float(levels.max()) if len(levels) else None,
         impossible_level_count=impossible,
-        gaps=gaps[:200],  # cap for report size
+        gaps=gaps[:200],  # cap listed gaps for report size
+        gap_count_total=len(gaps),
+        gap_seconds_total=round(gap_seconds_total, 1),
         gps_fix_rows=gps_rows,
         gps_with_fix=gps_fix,
         notes=notes,

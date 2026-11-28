@@ -1,92 +1,93 @@
 # noisereport
 
-Önálló, offline riport-pipeline hőszivattyú zajméréshez.  
-Csak **olvasó** kapcsolat a meglévő Synology PostgreSQL archívumhoz; a mutatók a hash-elt Parquet pillanatképen számolódnak.
+Felperesi **mérési napló** hőszivattyú-zajhoz: az elszenvedő fél saját mérései, ügyvédi tájékoztatásra.
 
-Kapcsolódó mérőrendszer: [`../noise`](../noise).
+- Nem szakértői vélemény, nem akkreditált jegyzőkönyv.
+- A számok PeakTech kijelzős mintákból számított energetikus **LAeq** értékek; a rendelet **L_TH** irányértékével vannak összevetve (nem hitelesített L_AM).
+- Offline pipeline: DB → Parquet pillanatkép → QC / mutatók / detektor → PDF.
 
-## Környezet
+Kapcsolódó mérőrendszer: a szomszédos `noise` monorepo (PostgreSQL archívum).
+
+## Követelmények
+
+- Python 3.12+, [`uv`](https://github.com/astral-sh/uv)
+- macOS: WeasyPrinthez `brew install pango` (a `DYLD_FALLBACK_LIBRARY_PATH`-ot a kód induláskor beállítja)
+- Olvasó `DATABASE_URL` a meglévő Postgreshez (csak SELECT; lásd `.env.example`)
+
+## Telepítés
 
 ```bash
-cd /Users/andras/PycharmProjects/noisereport
-# DATABASE_URL: másold a működő ../noise/apps/noise_web/.env-ből
-cp .env.example .env   # majd állítsd be a DATABASE_URL-t
+cd noisereport
+cp .env.example .env   # állítsd be a DATABASE_URL-t
 uv venv && source .venv/bin/activate
 uv pip install -r requirements.txt
-
-# WeasyPrint (macOS): brew install pango
-# DYLD_FALLBACK_LIBRARY_PATH: a build_report / src.report induláskor beállítja (.venv + Homebrew)
-
 pytest
-python -m src.db
+python -m src.db       # kapcsolat smoke-teszt
 ```
 
-## Futtatási lehetőségek
+## Futtatás
 
-### 1. Terminál (CLI)
-
-Előtte (egyszer): `source .venv/bin/activate`. A WeasyPrint dylib pathot a kód induláskor beállítja.
+Előtte: `source .venv/bin/activate`.
 
 ```bash
-# Extract (DB → Parquet snapshot)
-# Default tables: sound, fft_*, manual, environment (nem húz minute_stat/gps_fix)
-# Párhuzamos fetch (3 worker); rendezés kliensen; per-tábla query/write időlog.
+# 1) Extract: DB → snapshots/<start>_<end>/
 python extract.py --start 2026-11-23T08:00 --end 2026-11-26T16:00
 
-# QC a snapshoton
+# 2) QC (opcionális)
 python qc.py snapshots/<snap>
 
-# PDF meglévő snapshotból
+# 3) PDF meglévő snapshotból
 python build_report.py --snapshot snapshots/<snap> --layout full
 python build_report.py --snapshot snapshots/<snap> --layout thin
 
-# Extract + PDF egy lépésben (DB kell)
+# Extract + PDF egy lépésben
 python build_report.py --start 2026-11-23T08:00 --end 2026-11-26T16:00 --layout full
 ```
 
 | Flag | Értékek | Megjegyzés |
 |------|---------|------------|
-| `--snapshot` | `snapshots/...` | Meglévő pillanatkép; nincs DB-hívás |
-| `--start` / `--end` | helyi idő | Extract, ha nincs `--snapshot` |
-| `--layout` | `thin` \| `full` | Vékony napi / teljes (ügyvédi) PDF; default: `config.yaml` → `full` |
-| `--type` | `auto` \| `weekly` \| `monthly` \| `full` | Csak full layout összefoglaló kerete |
+| `--snapshot` | `snapshots/...` | Meglévő pillanatkép; nincs DB |
+| `--start` / `--end` | helyi idő (Europe/Budapest) | Extract, ha nincs `--snapshot` |
+| `--layout` | `thin` \| `full` | Rövid / részletes PDF (`config.yaml` default: `full`) |
+| `--type` | `auto` \| `weekly` \| `monthly` \| `full` | Csak full: összefoglaló keret |
 
-Kimenet: `output/report_<snap>/report.pdf` (+ HTML).
+Kimenet: `output/report_<snap>/report.pdf` (+ HTML, ábrák).
 
-### 2. PyCharm Run/Debug
+**Extract:** alapból `sound_sample`, `fft_*`, `manual_observations`, `environment_sample` (nem húz `minute_stat` / `gps_fix`). Párhuzamos fetch (max 3), rendezés kliensen, per-tábla `query=` / `write=` időlog.
 
-Kész konfigurációk a projektben:
+### PyCharm
 
-| Konfig | Mit csinál |
-|--------|------------|
-| **build_report full** | Teljes PDF a Parameters-ben megadott snapshotból |
-| **build_report thin** | Vékony PDF ugyanezzel |
+| Konfig | Szerep |
+|--------|--------|
+| **build_report full** | Részletes PDF |
+| **build_report thin** | Rövid PDF |
 
-**Hol a Parameters?**  
-Run → *Edit Configurations…* → bal oldalon válaszd a konfigot → **jobb oldalon** a *Parameters* mező.  
-Példa:
+Run → *Edit Configurations…* → bal oldalon a konfig → jobb oldalon **Parameters**, pl.:
 
 ```text
 --snapshot snapshots/20261123T070000Z_20261126T150000Z --layout full
 ```
 
-Más időszakra cseréld a `snapshots/...` mappanevet. Az interpreter a `.venv`; `DYLD_FALLBACK_LIBRARY_PATH` a konfig Environment variables-ében és a kódban is be van állítva.
+Interpreter: projekt `.venv`. A WeasyPrint dylib path a kódban és a Run Environment variables-ben is be van állítva.
 
-- **Interpreter:** Settings → Project → Python Interpreter → `.venv` (nem kell `source .venv`).
-- **Terminal a PyCharmban:** Settings → Tools → Terminal → *Activate virtualenv*.
+## Pipeline
 
-## Állapot
+```text
+extract.py  →  snapshots/…/*.parquet + manifest (SHA-256)
+build_report.py  →  mutatók, detektor, megítélési ablakok (8h nappal / 30min éjjel), PDF
+```
 
-- [x] Scaffold + smoke pytest
-- [x] Extract + SHA-256 (reprodukálható)
-- [x] QC
-- [x] LAeq / percentilisek + tesztek
-- [x] Vékony napi PDF
-- [x] Offline üzemészlelés (`detect.py`, profil `config/detector_1.1.0.yaml`)
-- [x] Rendszeresség / spektrum / határérték (PDF elemző fejezetek)
+Megítélési ablak: csak olyan 8 órás / 30 perces szakasz számít, amely **egészben** a nappali (06–22) vagy éjjeli (22–06) időszakba esik.
 
-## Források
+Konfig: [`config.yaml`](config.yaml) (határok, site, műszer, extract táblák).  
+Detektorprofil: [`config/detector_1.1.0.yaml`](config/detector_1.1.0.yaml).
 
-- PeakTech 8005 userguide: `../PeakTech_8005_09_2021_DE-EN.pdf`
-- DB credential (működő): `../noise/apps/noise_web/.env`
-- Séma: `../noise/database/schema.sql`
+## Docs
+
+| Fájl | Tartalom |
+|------|----------|
+| [`docs/limits_27_2008.md`](docs/limits_27_2008.md) | 27/2008 KvVM–EüM határ / megítélési idő |
+| [`docs/clarifications.md`](docs/clarifications.md) | Adatmodell / metrika megkötések |
+| [`docs/peaktech_8005.md`](docs/peaktech_8005.md) | Műszerjegyzetek |
+
+Séma (mérőrendszer): `noise/database/schema.sql`.

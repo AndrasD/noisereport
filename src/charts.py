@@ -295,7 +295,7 @@ def minute_laeq_chart(
                 s=16,
                 color=RED,
                 zorder=4,
-                label="túllépés",
+                label="irányérték felett",
             )
 
         ax.axhline(
@@ -339,7 +339,7 @@ def minute_laeq_chart(
             ax.text(
                 0.01,
                 0.98,
-                f"MAX TÚLLÉPÉS: +{max_over:.1f} dB",
+                f"MAX ELTÉRÉS: +{max_over:.1f} dB",
                 transform=ax.transAxes,
                 va="top",
                 ha="left",
@@ -412,7 +412,16 @@ def night_exceedance_stats(
     """Per night-date: minutes over limit and max exceedance (dB)."""
     if minutes is None or minutes.empty:
         return pd.DataFrame(
-            columns=["night_date", "minutes_over", "max_exceedance_db", "mean_over_db"]
+            columns=[
+                "night_date",
+                "minutes_total",
+                "minutes_over",
+                "pct_over",
+                "max_exceedance_db",
+                "mean_over_db",
+                "has_data",
+                "note",
+            ]
         )
     df = minutes.copy()
     df["measured_at"] = pd.to_datetime(df["measured_at"], utc=True)
@@ -423,7 +432,16 @@ def night_exceedance_stats(
     ].copy()
     if night.empty:
         return pd.DataFrame(
-            columns=["night_date", "minutes_over", "max_exceedance_db", "mean_over_db"]
+            columns=[
+                "night_date",
+                "minutes_total",
+                "minutes_over",
+                "pct_over",
+                "max_exceedance_db",
+                "mean_over_db",
+                "has_data",
+                "note",
+            ]
         )
     night["night_date"] = night["measured_at"].map(
         lambda ts: night_date_local(ts.to_pydatetime())
@@ -432,16 +450,22 @@ def night_exceedance_stats(
     rows = []
     for d, grp in night.groupby("night_date"):
         over = grp.loc[grp["exceedance"] > 0]
+        n_total = int(len(grp))
+        n_over = int(len(over))
         rows.append(
             {
                 "night_date": d,
-                "minutes_over": int(len(over)),
+                "minutes_total": n_total,
+                "minutes_over": n_over,
+                "pct_over": round(100.0 * n_over / n_total, 1) if n_total else 0.0,
                 "max_exceedance_db": (
                     round(float(over["exceedance"].max()), 1) if len(over) else 0.0
                 ),
                 "mean_over_db": (
                     round(float(over["exceedance"].mean()), 1) if len(over) else 0.0
                 ),
+                "has_data": True,
+                "note": None,
             }
         )
     return pd.DataFrame(rows).sort_values("night_date").reset_index(drop=True)
@@ -476,8 +500,9 @@ def night_exceedance_chart(
             for r in rows
         ]
         mins = [int(r["minutes_over"]) for r in rows]
+        hours = [m / 60.0 for m in mins]
         colors = [RED if m > 0 else "#9e9e9e" for m in mins]
-        bars = ax.bar(labels, mins, color=colors, edgecolor=DARK, linewidth=0.6)
+        bars = ax.bar(labels, hours, color=colors, edgecolor=DARK, linewidth=0.6)
         for bar, r in zip(bars, rows):
             if r["minutes_over"] <= 0:
                 continue
@@ -491,15 +516,15 @@ def night_exceedance_chart(
                 fontweight="bold",
                 color=RED,
             )
-        ax.set_ylabel("perc a határ felett", fontweight="bold")
-        ax.set_ylim(0, max(mins + [1]) * 1.25)
+        ax.set_ylabel("óra az irányérték felett", fontweight="bold")
+        ax.set_ylim(0, max(hours + [1 / 60.0]) * 1.25)
         ax.grid(True, axis="y", alpha=0.3)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
 
     ax.set_title(
-        f"Éjszakai túllépés — hány perc volt {night_limit:.0f} dB felett "
-        f"(felirat = max ΔdB az éjjel)",
+        f"Éjszakai irányérték felett — mennyi ideig volt {night_limit:.0f} dB felett "
+        f"(felirat = max eltérés az éjjel)",
         fontsize=11,
         fontweight="bold",
         color=DARK,
@@ -513,9 +538,17 @@ def night_exceedance_chart(
         serializable.append(
             {
                 "night_date": str(r["night_date"]),
+                "minutes_total": int(r.get("minutes_total") or 0),
                 "minutes_over": int(r["minutes_over"]),
+                "pct_over": float(r.get("pct_over") or 0.0),
                 "max_exceedance_db": float(r["max_exceedance_db"]),
                 "mean_over_db": float(r["mean_over_db"]),
+                "has_data": bool(r.get("has_data", True)),
+                "note": (
+                    None
+                    if int(r["minutes_over"]) > 0
+                    else "volt adat, LAeq ≤ irányérték"
+                ),
             }
         )
     return out_path, serializable

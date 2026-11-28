@@ -271,11 +271,20 @@ def evaluate_limits(
                 }
             )
 
+    quietest_night = min((r.laeq_db for r in night_30m), default=None)
+    quietest_day = min((r.laeq_db for r in day_8h), default=None)
+
     return {
         "summary": summary_rows,
         "assessment_rows": assessment_rows,
         "sensitivity": sensitivity,
         "primary_windows": ["8h", "30min"],
+        "quietest_night_window_db": (
+            round(quietest_night, 1) if quietest_night is not None else None
+        ),
+        "quietest_day_window_db": (
+            round(quietest_day, 1) if quietest_day is not None else None
+        ),
         "note": (
             "A táblázat a 27/2008. (XII. 3.) KvVM–EüM 2. § (2) szerinti "
             "megítélési időket mutatja: nappal a legzajosabb folyamatos 8 óra, "

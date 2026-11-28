@@ -1,4 +1,4 @@
-"""Generate lawyer-facing findings and claim–evidence rows from report metrics."""
+"""Generate findings and claim–evidence rows from report metrics."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def resolve_summary_type(
 
 def summary_type_label(summary_type: str) -> str:
     return {
-        "weekly": "Heti összefoglaló",
+        "weekly": "Időszaki összefoglaló",
         "monthly": "Havi összefoglaló",
         "full": "Teljes időszaki összefoglaló",
     }.get(summary_type, "Összefoglaló")
@@ -42,213 +42,234 @@ def build_findings(
     day_limit: float,
     night_limit: float,
 ) -> list[dict[str, Any]]:
-    """Build 4–5 main findings with claim–evidence links."""
+    """Build main findings with claim–evidence links (plain language)."""
     findings: list[dict[str, Any]] = []
-
-    # 1) Regulatory exceedance (assessment windows preferred)
     assessment = list(analysis.get("assessment_rows") or [])
-    over_assess = [r for r in assessment if r.get("is_over")]
-    if over_assess:
-        bits = []
-        for r in over_assess:
-            bits.append(
-                f"{r['label']}: {r['max_laeq']:.1f} dB "
-                f"(határ {int(r['limit_db'])} dB, "
-                f"{r['max_exceedance_db']:+.1f} dB)"
-            )
-        findings.append(
-            {
-                "id": "F1",
-                "claim": (
-                    "A rendelet szerinti megítélési ablakokban a számított LAeq "
-                    "a hivatkozott L_TH irányérték felett van "
-                    "(mért összzaj, nem L_AM)."
-                ),
-                "detail": "; ".join(bits),
-                "figure": "Fő rész: nappali/éjjeli 1 perces ábrák; § határérték",
-                "table": "Összefoglaló összehasonlító doboz; melléklet: érzékenység",
-                "annex": "Melléklet B — határérték-ablakok és érzékenység",
-                "source": "sound_sample → LAeq; 27/2008 KvVM–EüM 2. § (2)",
-            }
-        )
-    elif alert.get("over"):
-        findings.append(
-            {
-                "id": "F1",
-                "claim": (
-                    "A mért időszakban a számított LAeq többször a hivatkozott "
-                    "L_TH irányérték felett volt."
-                ),
-                "detail": " ".join(alert.get("bits") or []),
-                "figure": "Fő rész: nappali/éjjeli 1 perces ábrák",
-                "table": "Összefoglaló: megengedett vs mért",
-                "annex": "Melléklet A — nappal / éjjel összesítők",
-                "source": "sound_sample → percenkénti LAeq",
-            }
-        )
-    else:
-        findings.append(
-            {
-                "id": "F1",
-                "claim": (
-                    "Ebben a szeletben a számított átlagok a beállított "
-                    "határértékek alatt maradtak."
-                ),
-                "detail": (
-                    f"Nappal határ {int(day_limit)} dB, éjjel {int(night_limit)} dB."
-                ),
-                "figure": "Fő rész: nappali/éjjeli ábrák",
-                "table": "Összefoglaló összehasonlító doboz",
-                "annex": "Melléklet B",
-                "source": "sound_sample → LAeq",
-            }
-        )
-
-    # 2) Night levels
-    if night and night.get("laeq_db") is not None:
-        night_txt = (
-            f"Éjjeli átlag {night['laeq_db']:.1f} dB "
-            f"(megengedett {int(night_limit)} dB"
-        )
-        if night.get("exceedance_db") is not None:
-            night_txt += f", {night['exceedance_db']:+.1f} dB"
-        night_txt += ")."
-        findings.append(
-            {
-                "id": "F2",
-                "claim": (
-                    "Éjjel (22–06) is a hivatkozott L_TH felett van a számított LAeq."
-                    if night.get("over_limit")
-                    else "Az éjjeli számított LAeq a hivatkozott L_TH-hoz képest értékelhető."
-                ),
-                "detail": night_txt,
-                "figure": "Fő rész: éjjeli 1 perces ábra; üzemelési mintázat",
-                "table": "Összefoglaló: éjjel sor",
-                "annex": "Melléklet A — nappal / éjjel",
-                "source": "sound_sample, Europe/Budapest 22–06",
-            }
-        )
-
-    # 3) Machine runtime
-    if analysis.get("enabled"):
-        findings.append(
-            {
-                "id": "F3",
-                "claim": (
-                    f"A gép a mérési idő {analysis.get('on_ratio_pct', 0):.1f}%-ában "
-                    f"üzemelt ({analysis.get('on_hours', 0):.1f} óra / "
-                    f"{analysis.get('measure_hours', 0):.1f} óra; "
-                    f"{analysis.get('event_count', 0)} szakasz)."
-                ),
-                "detail": (
-                    "Az üzemállapot hangmintázatból (detektor) következtetett, "
-                    "nem a gép saját naplójából."
-                ),
-                "figure": "Fő rész: üzemelési mintázat (dátum × óra)",
-                "table": "Fő rész — üzemösszefoglaló",
-                "annex": "—",
-                "source": "offline detektor acoustic_hysteresis + sound/fft",
-            }
-        )
-
-    # 4) Spectral fingerprint
-    if analysis.get("spectrum_uri") or analysis.get("dominant_uri"):
-        findings.append(
-            {
-                "id": "F4",
-                "claim": (
-                    "Az üzemnek jelölt szakaszokban észlelt hangkép eltér "
-                    "a többi időszaktól (spektrum / domináns frekvencia)."
-                ),
-                "detail": (
-                    "Összehasonlító megfigyelés; önmagában nem bizonyít okságot "
-                    "és nem helyettesíti a dB–L_TH összevetést."
-                ),
-                "figure": "Fő rész: spektrum üzem vs nem üzem; domináns Hz",
-                "table": "—",
-                "annex": "Melléklet C — módszer / detektorparaméterek",
-                "source": "fft_band, fft_window + detektált események",
-            }
-        )
-
-    # 5) Sensitivity / robustness
+    day_row = next((r for r in assessment if r.get("window") == "8h_day"), None)
+    night_row = next((r for r in assessment if r.get("window") == "30min_night"), None)
     sens = list(analysis.get("sensitivity_assessment") or [])
-    if sens:
-        still = [r for r in sens if r.get("over_if_minus", 0) > 0]
-        if still:
-            worst = max(still, key=lambda r: abs(float(r.get("delta_db") or 0)))
+
+    def _sens_for(window_key: str, delta: float = 3.0) -> dict | None:
+        matches = [
+            r
+            for r in sens
+            if r.get("window") == window_key and float(r.get("delta_db") or 0) == delta
+        ]
+        return matches[0] if matches else None
+
+    # Night assessment — preferred lead finding when over
+    if night_row and night_row.get("max_laeq") is not None:
+        night_sens = _sens_for("30min")
+        robust = bool(
+            night_sens
+            and night_sens.get("n")
+            and night_sens.get("over_if_minus", 0) == night_sens.get("n")
+        )
+        if night_row.get("is_over"):
+            detail = (
+                f"A legzajosabb éjjeli fél órában {night_row['max_laeq']:.1f} dB "
+                f"(irányérték {int(night_limit)} dB, "
+                f"{night_row['max_exceedance_db']:+.1f} dB)."
+            )
+            if analysis.get("quietest_night_window_db") is not None:
+                detail += (
+                    f" Az éjjeli félórás ablakok közül a leghalkabb is "
+                    f"{analysis['quietest_night_window_db']:.1f} dB volt."
+                )
+            if robust and night_sens:
+                detail += (
+                    f" Ha a mérés 3 dB-lel túl magas lenne, mind a "
+                    f"{night_sens['n']} éjjeli ablak irányérték felett maradna."
+                )
             findings.append(
                 {
-                    "id": "F5",
+                    "id": "F1",
                     "claim": (
-                        "A túllépés a mérési bizonytalanság figyelembevételével "
-                        "is fennmarad több megítélési ablakban."
+                        "Éjjel a mért zaj a rendelet szerinti irányérték felett van "
+                        "— ez a robusztusabb megállapítás."
+                        if robust
+                        else "Éjjel a mért zaj a rendelet szerinti irányérték felett van."
                     ),
-                    "detail": (
-                        f"Példa: ha a mérés {int(worst['delta_db'])} dB-lel túl magas "
-                        f"lenne, a(z) {worst['window_label']} ablakok "
-                        f"{worst['over_if_minus']}/{worst['n']} "
-                        f"({int(worst['pct_if_quieter'])}%) még akkor is "
-                        f"határ felett maradna."
-                    ),
-                    "figure": "—",
-                    "table": "Melléklet B — érzékenységi tábla",
+                    "detail": detail,
+                    "figure": "Fő rész: éjjeli ábra; éjszakai irányérték-eltérés",
+                    "table": "Összefoglaló; melléklet: érzékenység",
                     "annex": "Melléklet B",
-                    "source": "assessment ablakok ±1…±3 dB",
+                    "source": "megítélési ablak 30 perc, 22–06",
                 }
             )
         else:
             findings.append(
                 {
-                    "id": "F5",
-                    "claim": (
-                        "Az érzékenységi vizsgálat szerint a bizonytalanság "
-                        "befolyásolhatja a határ feletti ablakok arányát."
+                    "id": "F1",
+                    "claim": "Éjjel a számított zaj az irányérték alatt / körül maradt.",
+                    "detail": (
+                        f"Legzajosabb éjjeli fél óra: {night_row['max_laeq']:.1f} dB "
+                        f"(irányérték {int(night_limit)} dB)."
                     ),
-                    "detail": "Részletek a melléklet érzékenységi táblájában.",
-                    "figure": "—",
-                    "table": "Melléklet B — érzékenységi tábla",
-                    "annex": "Melléklet B",
-                    "source": "assessment ablakok ±1…±3 dB",
+                    "figure": "Fő rész: éjjeli ábra",
+                    "table": "Összefoglaló",
+                    "annex": "Melléklet A",
+                    "source": "megítélési ablak 30 perc",
                 }
             )
-    elif day is not None:
+
+    # Day assessment — separate, note marginal robustness
+    if day_row and day_row.get("max_laeq") is not None:
+        day_sens = _sens_for("8h")
+        marginal = bool(
+            day_sens
+            and day_sens.get("n")
+            and day_sens.get("over_if_minus", 0) == 0
+            and day_row.get("is_over")
+        )
+        if day_row.get("is_over"):
+            detail = (
+                f"A legzajosabb nappali 8 órában {day_row['max_laeq']:.1f} dB "
+                f"(irányérték {int(day_limit)} dB, "
+                f"{day_row['max_exceedance_db']:+.1f} dB)."
+            )
+            if marginal and day_sens:
+                detail += (
+                    " 3 dB mérési bizonytalanság mellett a nappali 8 órás ablakok "
+                    f"közül egyik sem maradna irányérték felett "
+                    f"(0/{day_sens['n']}) — a nappali eltérés nem robusztus."
+                )
+            findings.append(
+                {
+                    "id": "F2",
+                    "claim": (
+                        "Nappal a mért zaj csak kis mértékben van az irányérték felett "
+                        "(nem robusztus 3 dB bizonytalanság mellett)."
+                        if marginal
+                        else "Nappal a mért zaj a rendelet szerinti irányérték felett van."
+                    ),
+                    "detail": detail,
+                    "figure": "Fő rész: nappali ábra",
+                    "table": "Összefoglaló; melléklet: érzékenység",
+                    "annex": "Melléklet B",
+                    "source": "megítélési ablak 8 óra, 06–22",
+                }
+            )
+        else:
+            findings.append(
+                {
+                    "id": "F2",
+                    "claim": "Nappal a számított zaj az irányérték alatt / körül maradt.",
+                    "detail": (
+                        f"Legzajosabb nappali 8 óra: {day_row['max_laeq']:.1f} dB "
+                        f"(irányérték {int(day_limit)} dB)."
+                    ),
+                    "figure": "Fő rész: nappali ábra",
+                    "table": "Összefoglaló",
+                    "annex": "Melléklet A",
+                    "source": "megítélési ablak 8 óra",
+                }
+            )
+
+    if not findings and alert.get("over"):
+        findings.append(
+            {
+                "id": "F1",
+                "claim": (
+                    "A mért időszakban a zaj többször a rendelet szerinti "
+                    "irányérték felett volt."
+                ),
+                "detail": " ".join(alert.get("bits") or []),
+                "figure": "Fő rész: nappali/éjjeli ábrák",
+                "table": "Összefoglaló",
+                "annex": "Melléklet A",
+                "source": "percenkénti zajszint",
+            }
+        )
+
+    # Machine runtime
+    if analysis.get("enabled"):
+        findings.append(
+            {
+                "id": "F3",
+                "claim": (
+                    f"A gép az érvényes mérési idő "
+                    f"{analysis.get('on_ratio_pct', 0):.1f}%-ában járt "
+                    f"({analysis.get('on_hm', '—')} / "
+                    f"{analysis.get('valid_measure_hm', analysis.get('measure_hm', '—'))}; "
+                    f"{analysis.get('event_count', 0)} szakasz)."
+                ),
+                "detail": (
+                    f"Lebontás: nappal {analysis.get('on_day_hm', '—')}, "
+                    f"éjjel {analysis.get('on_night_hm', '—')} "
+                    f"(összesen = a zajtábla „Gép jár” sorai). "
+                    "Az üzemállapot hangmintázatból (detektor) következtetett; "
+                    "az arány csak az adatot tartalmazó időre vonatkozik."
+                ),
+                "figure": "Fő rész: üzemelési mintázat",
+                "table": "Fő rész — üzemösszefoglaló",
+                "annex": "—",
+                "source": "detektor + hangminta",
+            }
+        )
+
+    # Spectrum — cautious
+    if analysis.get("spectrum_uri") or analysis.get("dominant_uri"):
+        findings.append(
+            {
+                "id": "F4",
+                "claim": (
+                    "A „gép jár” szakaszokban a hangkép eltér a többi időszaktól "
+                    "(összehasonlítás, nem forrásbizonyíték önmagában)."
+                ),
+                "detail": (
+                    "A különbség részben várható, ha a detektor a hangosabb "
+                    "időszakokat jelöli. A spektrum relatív skálán van; "
+                    "50 Hz környéke hálózati zümmögés lehet."
+                ),
+                "figure": "Fő rész: hangkép-ábrák",
+                "table": "Gép jár / nem jár zajtábla",
+                "annex": "Melléklet C — módszer",
+                "source": "FFT + detektált szakaszok",
+            }
+        )
+
+    # On/off comparison if present
+    if analysis.get("on_off_rows"):
         findings.append(
             {
                 "id": "F5",
                 "claim": (
-                    f"Nappali átlag {day.get('laeq_db', '—')} dB "
-                    f"(határ {int(day_limit)} dB)."
+                    "Gép járáskor és kikapcsoltnak jelölt időszakban a mért "
+                    "átlagos zaj és a háttérközeli szint összevethető."
                 ),
-                "detail": "Teljes nappali időszak energetikus átlaga.",
-                "figure": "Fő rész: nappali ábra",
-                "table": "Összefoglaló",
-                "annex": "Melléklet A",
-                "source": "sound_sample 06–22",
+                "detail": (
+                    "Lásd a „Gép jár / nem jár” táblát (nappal és éjjel). "
+                    "Ez összzaj, nem a gép egyedüli hozzájárulása."
+                ),
+                "figure": "—",
+                "table": "Gép jár / nem jár",
+                "annex": "—",
+                "source": "hangminta × detektor",
             }
         )
 
-    return findings[:5]
+    return findings[:6]
 
 
 GLOSSARY: list[dict[str, str]] = [
     {
         "term": "LAeq",
         "def": (
-            "A-súlyozott egyenértékű hangnyomásszint: a változó zaj energetikus "
-            "átlaga egy időszakra, dB-ben. A riportban a PeakTech kijelzős "
-            "mintáiból számított érték."
+            "Energetikus átlagos zajszint (A-súlyozott). Ebben a naplóban a "
+            "műszer kijelzős mintáiból számított érték, nem hitelesített laboratóriumi LAeq."
         ),
     },
     {
-        "term": "L90",
+        "term": "L_TH / irányérték",
         "def": (
-            "Az az A-súlyozott szint, amelyet az idő 90%-ában meghalad a jel "
-            "(gyakran a háttérzaj közelítője). A riport percentilisekből számol."
+            "A 27/2008. KvVM–EüM rendelet szerinti zajterhelési irányérték "
+            "(pl. nappal 50 / éjjel 40 dB lakóterületen). Nem azonos a hivatalos L_AM "
+            "megítélési szinttel."
         ),
     },
     {
-        "term": "dBA",
+        "term": "dB (A)",
         "def": (
             "A-súlyozott decibel: a fül érzékenységéhez igazított hangossági skála."
         ),
@@ -256,22 +277,15 @@ GLOSSARY: list[dict[str, str]] = [
     {
         "term": "1/3 oktávsáv",
         "def": (
-            "A hang spektrumának frekvenciasávokra bontása; üzemnek jelölt vs. "
-            "egyéb időszakok összehasonlítására."
-        ),
-    },
-    {
-        "term": "Tónusos zaj",
-        "def": (
-            "Olyan zaj, amelyben egy vagy több tiszta hang / keskeny sáv kiemelkedik. "
-            "A spektrum és a domináns frekvencia ábrák ezt vizsgálják."
+            "A hang spektrumának frekvenciasávokra bontása; gép jár vs nem jár "
+            "összehasonlítására (relatív szint)."
         ),
     },
     {
         "term": "Megítélési idő",
         "def": (
-            "A 27/2008. KvVM–EüM szerint nappal a legzajosabb folyamatos 8 óra, "
-            "éjjel a legzajosabb fél óra — ehhez viszonyítjuk a határt."
+            "A rendelet szerint nappal a legzajosabb folyamatos 8 óra, "
+            "éjjel a legzajosabb fél óra — ehhez viszonyítjuk az irányértéket."
         ),
     },
 ]
@@ -283,7 +297,7 @@ LIMITATIONS: list[dict[str, str]] = [
         "answer": (
             "A PeakTech 8005 Class 2 besorolása gyártói állítás, nem ellenőrzött; "
             "ebben a naplóban nincs hitelesített kalibrációs napló. A számok "
-            "kijelzős mintákból számított LAeq-k. Az érzékenységi tábla (±1…±3 dB) "
+            "kijelzős mintákból számított átlagok. Az érzékenységi tábla (±1…±3 dB) "
             "az összevetés érzékenységét mutatja."
         ),
     },
@@ -305,9 +319,9 @@ LIMITATIONS: list[dict[str, str]] = [
     {
         "objection": "Háttérzaj / más források",
         "answer": (
-            "A spektrum és a domináns frekvencia üzem vs. nem üzem összevetése "
+            "A gép jár / nem jár tábla és a hangkép-összehasonlítás "
             "összehasonlító megfigyelés; önmagában nem bizonyít okságot. "
-            "A L90 és a kikapcsolt szakaszok a háttér közelítésére szolgálnak."
+            "A háttérközeli szint (L90) közelítés."
         ),
     },
 ]

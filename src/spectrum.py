@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import matplotlib
@@ -28,7 +29,9 @@ def mean_third_octave(
     events: pd.DataFrame,
 ) -> pd.DataFrame:
     if fft_band.empty:
-        return pd.DataFrame(columns=["band_label", "f_center_hz", "on_db", "off_db", "delta_db"])
+        return pd.DataFrame(
+            columns=["band_label", "f_center_hz", "on_db", "off_db", "delta_db"]
+        )
 
     df = fft_band.copy()
     df["measured_at"] = pd.to_datetime(df["measured_at"], utc=True)
@@ -63,53 +66,99 @@ def spectrum_difference_chart(bands: pd.DataFrame, *, out_path: Path) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(10, 3.4), dpi=120)
     if bands.empty or bands["on_db"].isna().all():
-        ax.text(0.5, 0.5, "Nincs spektrumadat", ha="center", va="center", transform=ax.transAxes)
+        ax.text(
+            0.5,
+            0.5,
+            "Nincs spektrumadat",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
     else:
         x = bands["f_center_hz"].astype(float)
-        ax.semilogx(x, bands["on_db"], label="üzem", color="#c45c26")
-        ax.semilogx(x, bands["off_db"], label="nem üzem", color="#1f4e79")
+        ax.semilogx(x, bands["on_db"], label="gép jár", color="#c45c26")
+        ax.semilogx(x, bands["off_db"], label="gép nem jár", color="#1f4e79")
         if bands["delta_db"].notna().any():
-            ax.semilogx(x, bands["delta_db"], label="különbség", color="#2a7f62", linestyle="--")
+            ax.semilogx(
+                x,
+                bands["delta_db"],
+                label="különbség",
+                color="#2a7f62",
+                linestyle="--",
+            )
         ax.set_xlabel("Hz")
-        ax.set_ylabel("dB")
+        ax.set_ylabel("relatív hangosság")
         ax.grid(True, which="both", alpha=0.25)
         ax.legend(fontsize=8)
-    ax.set_title("Átlag 1/3 oktáv spektrum — üzem vs nem üzem")
+        ax.axvline(50, color="#888", linestyle=":", linewidth=1, alpha=0.8)
+        ax.text(
+            50,
+            ax.get_ylim()[1],
+            " 50 Hz",
+            fontsize=7,
+            color="#666",
+            va="top",
+        )
+    ax.set_title(
+        "Hangmagasság-összehasonlítás (relatív) — gép jár vs nem jár",
+        fontsize=11,
+    )
     fig.tight_layout()
     fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)
     return out_path
 
 
-def dominant_hz_histogram(fft_window: pd.DataFrame, events: pd.DataFrame, *, out_path: Path) -> Path:
+def _dominant_hz(meta) -> float | None:
+    if isinstance(meta, dict):
+        v = meta.get("dominant_hz")
+        return float(v) if v is not None else None
+    if isinstance(meta, str) and meta.strip():
+        try:
+            parsed = json.loads(meta)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(parsed, dict) and parsed.get("dominant_hz") is not None:
+            return float(parsed["dominant_hz"])
+    return None
+
+
+def dominant_hz_histogram(
+    fft_window: pd.DataFrame, events: pd.DataFrame, *, out_path: Path
+) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig, ax = plt.subplots(figsize=(8, 3.0), dpi=120)
     if fft_window.empty:
-        ax.text(0.5, 0.5, "Nincs FFT ablak", ha="center", va="center", transform=ax.transAxes)
+        ax.text(
+            0.5, 0.5, "Nincs FFT ablak", ha="center", va="center", transform=ax.transAxes
+        )
     else:
         f = fft_window.copy()
         f["measured_at"] = pd.to_datetime(f["measured_at"], utc=True)
-
-        def _dom(meta):
-            if isinstance(meta, dict):
-                return meta.get("dominant_hz")
-            return None
-
-        f["dominant_hz"] = f["metadata"].map(_dom) if "metadata" in f.columns else None
+        f["dominant_hz"] = (
+            f["metadata"].map(_dominant_hz) if "metadata" in f.columns else None
+        )
         f["dominant_hz"] = pd.to_numeric(f["dominant_hz"], errors="coerce")
         f = f.dropna(subset=["dominant_hz"])
         f["on"] = _mask_on(f["measured_at"], events)
-        on = f.loc[f["on"], "dominant_hz"]
-        off = f.loc[~f["on"], "dominant_hz"]
-        bins = np.linspace(0, max(200, float(f["dominant_hz"].max())), 40)
-        if len(on):
-            ax.hist(on, bins=bins, alpha=0.65, label="üzem", color="#c45c26")
-        if len(off):
-            ax.hist(off, bins=bins, alpha=0.45, label="nem üzem", color="#1f4e79")
+        on = f.loc[f["on"], "dominant_hz"].to_numpy()
+        off = f.loc[~f["on"], "dominant_hz"].to_numpy()
+        hi = max(200.0, float(f["dominant_hz"].max()) if len(f) else 200.0)
+        bins = np.linspace(0, hi, 60)
+
+        def _pct_hist(vals: np.ndarray, **kwargs):
+            if len(vals) == 0:
+                return
+            weights = np.full(len(vals), 100.0 / len(vals))
+            ax.hist(vals, bins=bins, weights=weights, **kwargs)
+
+        _pct_hist(on, alpha=0.65, label="gép jár", color="#c45c26")
+        _pct_hist(off, alpha=0.45, label="gép nem jár", color="#1f4e79")
         ax.legend(fontsize=8)
-        ax.set_xlabel("domináns Hz")
-        ax.set_ylabel("darab")
-    ax.set_title("Domináns frekvencia eloszlás")
+        ax.set_xlabel("domináns hangmagasság (Hz)")
+        ax.set_ylabel("% az osztályon belül")
+        ax.axvline(50, color="#888", linestyle=":", linewidth=1, alpha=0.8)
+    ax.set_title("Domináns hangmagasság — arányos eloszlás")
     fig.tight_layout()
     fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)

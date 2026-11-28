@@ -34,7 +34,15 @@ from src.findings import (
 from src.limits import evaluate_limits
 from src.metrics import minute_stats_from_sound, period_stats, sustained_peak_db
 from src.qc import run_qc
-from src.regularity import cycle_summary, duty_heatmap, events_to_frame
+from src.regularity import (
+    clip_events_to_data,
+    cycle_summary,
+    duty_heatmap,
+    events_to_frame,
+    on_hours_from_on_off_rows,
+    on_off_period_stats,
+    valid_measure_hours_from_minutes,
+)
 from src.spectrum import (
     dominant_hz_histogram,
     mean_third_octave,
@@ -117,14 +125,14 @@ def _local_display(value: str | datetime | pd.Timestamp) -> str:
 
 
 def format_hours_minutes(hours: float | None) -> str:
-    """e.g. 64.9 → '64 óra 54 perc'; under 1 min → 'N sec'."""
+    """e.g. 64.9 → '64 óra 54 perc'; under 1 min → 'N mp'."""
     if hours is None:
         return "—"
     total_sec = int(round(float(hours) * 3600.0))
     if total_sec < 0:
         total_sec = 0
     if total_sec < 60:
-        return f"{total_sec} sec"
+        return f"{total_sec} mp"
     total_min = total_sec // 60
     h, m = divmod(total_min, 60)
     if h and m:
@@ -135,7 +143,7 @@ def format_hours_minutes(hours: float | None) -> str:
 
 
 def format_minutes_hm(minutes: float | None) -> str:
-    """e.g. 162.1 → '2 óra 42 perc'; 0.3 → '18 sec'."""
+    """e.g. 162.1 → '2 óra 42 perc'; 0.3 → '18 mp'."""
     if minutes is None:
         return "—"
     return format_hours_minutes(float(minutes) / 60.0)
@@ -179,7 +187,7 @@ def _build_timeline(
             {
                 "when": "—",
                 "kind": "Adatkiesés (további)",
-                "detail": f"Még {len(big_gaps) - cap} kiesés ≥ 60 s — lásd QC melléklet.",
+                "detail": f"Még {len(big_gaps) - cap} kiesés ≥ 60 s a mérésben.",
             }
         )
 
@@ -262,7 +270,7 @@ def _compute_report_bundle(
     night = period_stats(sound, day_only=False)
 
     # Whole-period LAeq has no single decree limit (day 50 / night 40 differ) —
-    # keep as info only, never mark TÚLLÉPÉS against the daytime limit.
+    # keep as info only, never mark IRÁNYÉRTÉK FELETT against the daytime limit.
     overall_fmt = _fmt_stats(
         overall, limit=None, peak_db=sustained_peak_db(sound)
     )
@@ -282,7 +290,7 @@ def _compute_report_bundle(
         alert_over = True
         alert_bits.append(
             f"Nappal a mért átlagzaj {day_fmt['laeq_db']:.1f} dB — "
-            f"a megengedett {day_limit:.0f} dB-nél "
+            f"az irányérték {day_limit:.0f} dB-nél "
             f"{day_fmt['exceedance_db']:.1f} dB-lel hangosabb."
         )
         max_exceed = day_fmt["exceedance_db"]
@@ -290,7 +298,7 @@ def _compute_report_bundle(
         alert_over = True
         alert_bits.append(
             f"Éjjel a mért átlagzaj {night_fmt['laeq_db']:.1f} dB — "
-            f"a megengedett {night_limit:.0f} dB-nél "
+            f"az irányérték {night_limit:.0f} dB-nél "
             f"{night_fmt['exceedance_db']:.1f} dB-lel hangosabb."
         )
         max_exceed = (
@@ -319,14 +327,22 @@ def _compute_report_bundle(
         "event_count": 0,
         "measure_hours": 0.0,
         "measure_hm": "0 perc",
+        "wall_hours": 0.0,
+        "wall_hm": "0 perc",
+        "valid_measure_hours": 0.0,
+        "valid_measure_hm": "0 perc",
         "on_hours": 0.0,
         "on_hm": "0 perc",
+        "on_day_hm": "—",
+        "on_night_hm": "—",
         "on_ratio_pct": 0.0,
         "cycle": None,
         "limit_summary": [],
         "assessment_rows": [],
         "sensitivity": [],
         "sensitivity_assessment": [],
+        "quietest_night_window_db": None,
+        "quietest_day_window_db": None,
         "heatmap_uri": None,
         "spectrum_uri": None,
         "dominant_uri": None,
@@ -336,6 +352,7 @@ def _compute_report_bundle(
         "limit_note": None,
         "events": [],
         "detector_version": None,
+        "on_off_rows": [],
     }
 
     day_window: dict[str, Any] | None = None
@@ -401,15 +418,23 @@ def _compute_report_bundle(
     )
     for row in night_exc_rows:
         row["minutes_over_hm"] = format_minutes_hm(row.get("minutes_over"))
-
+        if row.get("night_date") is not None and hasattr(row["night_date"], "strftime"):
+            row["night_date"] = row["night_date"].strftime("%Y.%m.%d.")
 
     if with_analysis:
         print("[report] spektrum / mintázat…", flush=True)
+        sound_times = (
+            pd.to_datetime(sound["measured_at"], utc=True)
+            if not sound.empty
+            else None
+        )
+        ev_clipped = clip_events_to_data(ev_df, sound_times)
         heatmap = duty_heatmap(
             ev_df,
             out_path=work / "heatmap.png",
             start=manifest["start_utc"],
             end=manifest["end_utc"],
+            sound_times=sound_times,
         )
         fft_band = (
             pd.read_parquet(snap / "fft_band.parquet")
@@ -421,21 +446,39 @@ def _compute_report_bundle(
             if (snap / "fft_window.parquet").exists()
             else pd.DataFrame()
         )
-        bands = mean_third_octave(fft_band, ev_df)
+        bands = mean_third_octave(fft_band, ev_clipped)
         spectrum_path = spectrum_difference_chart(bands, out_path=work / "spectrum.png")
         dominant_path = dominant_hz_histogram(
-            fft_window, ev_df, out_path=work / "dominant_hz.png"
+            fft_window, ev_clipped, out_path=work / "dominant_hz.png"
         )
-        # lim already computed above
         limit_summary = list(lim.get("summary") or [])
         assessment_rows = list(lim.get("assessment_rows") or [])
 
         start_utc = pd.Timestamp(manifest["start_utc"])
         end_utc = pd.Timestamp(manifest["end_utc"])
-        measure_hours = max((end_utc - start_utc).total_seconds() / 3600.0, 0.0)
-        cycle = cycle_summary(ev_df)
-        on_hours = float(cycle.get("total_on_hours") or 0.0)
-        on_ratio = (on_hours / measure_hours) if measure_hours > 0 else 0.0
+        wall_hours = max((end_utc - start_utc).total_seconds() / 3600.0, 0.0)
+        valid_hours = valid_measure_hours_from_minutes(minutes)
+        cycle = cycle_summary(ev_clipped)
+        # Same 1-minute grid as the on/off table → day_on + night_on == on_hm
+        on_off_rows = on_off_period_stats(minutes, ev_clipped)
+        on_hours = on_hours_from_on_off_rows(on_off_rows)
+        on_ratio = (on_hours / valid_hours) if valid_hours > 0 else 0.0
+        on_day_hm = next(
+            (
+                r["duration_hm"]
+                for r in on_off_rows
+                if r["period"].startswith("Nappal") and r["state"] == "Gép jár"
+            ),
+            "—",
+        )
+        on_night_hm = next(
+            (
+                r["duration_hm"]
+                for r in on_off_rows
+                if r["period"].startswith("Éjjel") and r["state"] == "Gép jár"
+            ),
+            "—",
+        )
 
         det_cfg_path = _ROOT / "config" / "detector_1.1.0.yaml"
         det_ver = "1.1.0"
@@ -445,11 +488,17 @@ def _compute_report_bundle(
 
         analysis = {
             "enabled": True,
-            "event_count": len(events),
-            "measure_hours": round(measure_hours, 2),
-            "measure_hm": format_hours_minutes(measure_hours),
+            "event_count": int(cycle.get("event_count") or len(ev_clipped)),
+            "measure_hours": round(valid_hours, 2),
+            "measure_hm": format_hours_minutes(valid_hours),
+            "wall_hours": round(wall_hours, 2),
+            "wall_hm": format_hours_minutes(wall_hours),
+            "valid_measure_hours": round(valid_hours, 2),
+            "valid_measure_hm": format_hours_minutes(valid_hours),
             "on_hours": round(on_hours, 2),
             "on_hm": format_hours_minutes(on_hours),
+            "on_day_hm": on_day_hm,
+            "on_night_hm": on_night_hm,
             "on_ratio_pct": round(100.0 * on_ratio, 1),
             "cycle": cycle,
             "limit_summary": limit_summary,
@@ -458,6 +507,8 @@ def _compute_report_bundle(
             "sensitivity_assessment": [
                 row for row in lim["sensitivity"] if row.get("is_assessment")
             ],
+            "quietest_night_window_db": lim.get("quietest_night_window_db"),
+            "quietest_day_window_db": lim.get("quietest_day_window_db"),
             "limit_note": lim["note"],
             "heatmap_uri": heatmap.resolve().as_uri(),
             "spectrum_uri": spectrum_path.resolve().as_uri(),
@@ -466,6 +517,7 @@ def _compute_report_bundle(
             "night_exceedance_rows": night_exc_rows,
             "temperature": temp_summary,
             "detector_version": det_ver,
+            "on_off_rows": on_off_rows,
             "events": [
                 {
                     "started_at": _local_display(e.started_at),
@@ -501,30 +553,77 @@ def _compute_report_bundle(
     created_at = datetime.now(timezone.utc).isoformat()
     commit = git_commit()
 
+    # Labeled deltas (assessment window vs loudest minute) — do not conflate
+    exceedance_items: list[dict[str, Any]] = []
+    if day_window and day_window.get("max_exceedance_db") is not None:
+        exceedance_items.append(
+            {
+                "label": "Nappali megítélési ablak (legzajosabb 8 óra)",
+                "db": round(float(day_window["max_exceedance_db"]), 1),
+            }
+        )
+    if night_window and night_window.get("max_exceedance_db") is not None:
+        exceedance_items.append(
+            {
+                "label": "Éjjeli megítélési ablak (legzajosabb 30 perc)",
+                "db": round(float(night_window["max_exceedance_db"]), 1),
+            }
+        )
+    if day_fmt and day_fmt.get("lmax_db") is not None:
+        exceedance_items.append(
+            {
+                "label": "Nappali leghangosabb perc (átlaghoz képest nem irányérték)",
+                "db": round(float(day_fmt["lmax_db"]) - day_limit, 1),
+            }
+        )
+    if night_fmt and night_fmt.get("lmax_db") is not None:
+        exceedance_items.append(
+            {
+                "label": "Éjjeli leghangosabb perc",
+                "db": round(float(night_fmt["lmax_db"]) - night_limit, 1),
+            }
+        )
+
+    night_over = bool(night_window and night_window.get("is_over"))
+    day_over = bool(day_window and day_window.get("is_over"))
+    if night_over and not day_over:
+        alert_title = "Éjjel a mért zaj a rendelet szerinti irányérték felett van"
+    elif night_over and day_over:
+        alert_title = (
+            "Éjjel robusztusan, nappal kisebb mértékben az irányérték felett"
+        )
+    elif day_over:
+        alert_title = "Nappal a mért zaj a rendelet szerinti irányérték felett van"
+    elif alert_over:
+        alert_title = "A mért zaj a rendelet szerinti irányérték felett van"
+    else:
+        alert_title = "A mért zaj a rendelet szerinti irányérték alatt / körül maradt"
+
     alert = {
         "over": alert_over,
-        "title": (
-            "A számított LAeq a hivatkozott L_TH irányérték felett van"
-            if alert_over
-            else "A számított LAeq a hivatkozott L_TH irányérték alatt maradt"
-        ),
+        "title": alert_title,
         "plain_verdict": (
-            "A rendeleti megítélési ablakokban (nappal legzajosabb 8 óra, "
-            "éjjel legzajosabb 30 perc) a számított energetikus LAeq "
-            f"magasabb a hivatkozott L_TH-nál "
-            f"(nappal {day_limit:.0f} / éjjel {night_limit:.0f} dB). "
-            "Ez mért összzaj, nem hitelesített L_AM megítélési szint. "
-            "A piros kiemelések ezt az összevetést mutatják."
+            (
+                "Éjjel a legzajosabb fél órában, nappal a legzajosabb 8 órában "
+                "hasonlítjuk a mért zajt a rendelet irányértékéhez "
+                f"(nappal {day_limit:.0f} / éjjel {night_limit:.0f} dB). "
+                "Ez mért összzaj, nem hivatalos megítélési szint. "
+                "Az éjjeli és nappali eltérés erőssége különbözhet — lásd a "
+                "fő megállapításokat és az érzékenységi mellékletet."
+            )
             if alert_over
-            else "Ebben az időszakban a számított LAeq a hivatkozott "
-            f"L_TH irányértékek alatt maradt "
-            f"(nappal {day_limit:.0f} / éjjel {night_limit:.0f} dB)."
+            else (
+                "Ebben az időszakban a számított zaj a rendelet irányértékei "
+                f"alatt / körül maradt (nappal {day_limit:.0f} / éjjel "
+                f"{night_limit:.0f} dB)."
+            )
         ),
         "max_exceedance_db": None if max_exceed is None else round(max_exceed, 1),
         "max_exceedance_basis": (
-            "nappali/éjjeli átlag és rendeleti megítélési ablakok "
-            "(nappal 8 óra, éjjel 30 perc) — rövid 1 perces kilengés nélkül"
+            "A lentebb címkézett eltérések: megítélési ablak vs. leghangosabb perc "
+            "— nem ugyanazt mérik."
         ),
+        "exceedance_items": exceedance_items,
         "bits": alert_bits,
         "allowed_day": day_limit,
         "allowed_night": night_limit,
@@ -532,18 +631,17 @@ def _compute_report_bundle(
         "measured_night": measured_night,
         "limits_line": (
             f"Jogszabály: {legal_source} · terület: {protected_area} · "
-            f"nappal max. {day_limit:.0f} dB · éjjel max. {night_limit:.0f} dB"
+            f"nappal irányérték {day_limit:.0f} dB · éjjel {night_limit:.0f} dB"
         ),
     }
 
     disclaimer = (
-        "Felperesi mérési napló / tájékoztató az ügyvédnek: a zajjal érintett "
+        "Mérési napló / tájékoztató az ügyvédnek: a zajjal érintett "
         "(elszenvedő) fél saját mérései. Nem szakértői vélemény, nem akkreditált "
-        "laboratóriumi jegyzőkönyv, nem bírósági bizonyíték-formátum. "
-        "A számok PeakTech kijelzős mintákból számított energetikus LAeq értékek. "
-        f"A {day_limit:.0f}/{night_limit:.0f} dB a {legal_source} 1. melléklet "
-        f"szerinti L_TH irányérték ({protected_area}). A rendelet L_AM megítélési "
-        "szintet ír elő; a piros kiemelés a mért LAeq és az L_TH egyszerű összevetése."
+        "laboratóriumi jegyzőkönyv. A számok a műszer kijelzős mintáiból számított "
+        f"átlagos zajszintek. A {day_limit:.0f}/{night_limit:.0f} dB a "
+        f"{legal_source} szerinti irányérték ({protected_area}). "
+        "A piros kiemelés a mért zaj és az irányérték egyszerű összevetése."
     )
 
     ctx = {
@@ -701,8 +799,19 @@ def build_full_report(
             "qc": {
                 "coverage_pct": round(100.0 * qc.coverage_ratio, 1),
                 "sound_sample_count": qc.sound_sample_count,
-                "gap_count": len(qc.gaps),
+                "duration_hm": format_hours_minutes(qc.duration_minutes / 60.0),
+                "gap_count": qc.gap_count_total,
+                "gap_hours_hm": format_hours_minutes(qc.gap_seconds_total / 3600.0),
                 "gap_ge_60s": sum(1 for g in qc.gaps if g.duration_s >= 60),
+                "gaps_long": [
+                    {
+                        "start": _local_display(g.start),
+                        "end": _local_display(g.end),
+                        "duration_hm": format_minutes_hm(g.duration_s / 60.0),
+                    }
+                    for g in qc.gaps
+                    if g.duration_s >= 60
+                ][:40],
                 "duplicate_timestamps": qc.duplicate_timestamps,
                 "notes": qc.notes,
                 "level_db_min": qc.level_db_min,
